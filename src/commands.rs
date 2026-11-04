@@ -37,12 +37,12 @@ pub fn status() {
     });
 
     let p = ui::pal();
-    ui::header_head(&format!("pkg {}", crate::VERSION));
+    ui::header_head(&format!("apkg {}", crate::VERSION));
     ui::blank();
     kv("packages", &p.bold(&s.total.to_string()), &format!("{} explicit · {} deps", s.explicit, s.deps));
     kv("from AUR", &p.aur(&s.aur.to_string()), "");
     if s.orphans > 0 {
-        kv("orphans", &p.warn(&s.orphans.to_string()), "pkg orphans");
+        kv("orphans", &p.warn(&s.orphans.to_string()), "apkg orphans");
     } else {
         kv("orphans", &p.ok("0"), "");
     }
@@ -62,9 +62,9 @@ pub fn status() {
         if s.aur_updates > 0 {
             parts.push(p.aur(&format!("{} AUR", s.aur_updates)));
         }
-        kv("updates", &parts.join(&p.dim(" · ")), "pkg update");
+        kv("updates", &parts.join(&p.dim(" · ")), "apkg update");
     }
-    kv("cache", &p.bold(&ui::human_bytes(s.cache)), &format!("{} archives · pkg clean", s.archives));
+    kv("cache", &p.bold(&ui::human_bytes(s.cache)), &format!("{} archives · apkg clean", s.archives));
     match &s.disk {
         Some((pct, free)) => kv("disk /", &format!("{} {pct}%", ui::bar(*pct, 16)), &format!("{free} free")),
         None => kv("disk /", "?", ""),
@@ -290,8 +290,8 @@ pub fn update_preview(scope: UpdateScope) {
 
 pub fn print_updates(repo: &[String], aur: &[String], own: Option<&str>) {
     if let Some(v) = own {
-        ui::header_head("pkg itself");
-        ui::updates_table(&[format!("pkg {} -> {v}", selfupdate::VERSION)], ui::Palette::head);
+        ui::header_head("apkg itself");
+        ui::updates_table(&[format!("apkg {} -> {v}", selfupdate::VERSION)], ui::Palette::head);
     }
     if !repo.is_empty() {
         ui::header_repo(&format!("repositories · {}", repo.len()));
@@ -313,7 +313,7 @@ pub enum UpdateScope {
 pub fn run_update(scope: UpdateScope, assume_yes: bool) -> Result<(), String> {
     if scope == UpdateScope::All && ui::spin("checking pkg itself…", || selfupdate::available(10)).is_some() {
         if let Err(e) = selfupdate::run(false) {
-            ui::warning(&format!("pkg self-update: {e}"));
+            ui::warning(&format!("apkg self-update: {e}"));
         }
     }
     let helper = sys::aur_helper();

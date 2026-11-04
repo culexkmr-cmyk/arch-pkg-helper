@@ -149,7 +149,7 @@ impl GitInstaller {
             0 => {
                 ui::success(&format!("cloned {dest}"));
                 if Path::new(&dest).join("PKGBUILD").is_file() {
-                    ui::info(&format!("it has a PKGBUILD: pkg install {dest}"));
+                    ui::info(&format!("it has a PKGBUILD: apkg install {dest}"));
                 }
                 Ok(())
             }

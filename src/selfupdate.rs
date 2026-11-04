@@ -50,7 +50,7 @@ fn cache_file() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))?;
-    Some(base.join("pkg").join("update-check"))
+    Some(base.join("apkg").join("update-check"))
 }
 
 fn now() -> u64 {
@@ -66,9 +66,9 @@ fn remember(version: &str) {
     }
 }
 
-/// Newer version from a check made at most once a day. Off with PKG_NO_UPDATE_CHECK.
+/// Newer version from a check made at most once a day. Off with APKG_NO_UPDATE_CHECK (or PKG_NO_UPDATE_CHECK).
 pub fn notice() -> Option<String> {
-    if std::env::var_os("PKG_NO_UPDATE_CHECK").is_some() {
+    if std::env::var_os("APKG_NO_UPDATE_CHECK").is_some() || std::env::var_os("PKG_NO_UPDATE_CHECK").is_some() {
         return None;
     }
     let cached = cache_file().and_then(|f| std::fs::read_to_string(f).ok()).and_then(|s| {
@@ -119,15 +119,15 @@ pub fn run(dry_run: bool) -> Result<(), String> {
     let latest = latest(15)?;
     remember(&latest);
     if !newer(&latest, VERSION) {
-        ui::success(&format!("pkg {VERSION} is the latest"));
+        ui::success(&format!("apkg {VERSION} is the latest"));
         return Ok(());
     }
     let exe =
         std::env::current_exe().and_then(|p| p.canonicalize()).map_err(|e| format!("cannot locate own binary: {e}"))?;
     if let Some(owner) = sys::owner_of(&exe.to_string_lossy()) {
-        return Err(format!("{owner}: update it through pacman (pkg update)"));
+        return Err(format!("{owner}: update it through pacman (apkg update)"));
     }
-    ui::info(&format!("pkg {VERSION} → {latest}"));
+    ui::info(&format!("apkg {VERSION} → {latest}"));
     if dry_run {
         ui::info(&format!("would download v{latest}, verify sha256 and replace {}", exe.display()));
         return Ok(());
@@ -152,7 +152,7 @@ pub fn run(dry_run: bool) -> Result<(), String> {
     }
 
     replace(&bin, &exe)?;
-    ui::success(&format!("pkg updated to {latest}"));
+    ui::success(&format!("apkg updated to {latest}"));
     Ok(())
 }
 

@@ -17,28 +17,28 @@ use selfupdate::VERSION;
 
 fn usage() {
     let p = ui::pal();
-    println!("{} {} — helper for Arch Linux packages\n", p.bold("pkg"), p.dim(&format!("v{VERSION}")));
+    println!("{} {} — helper for Arch Linux packages\n", p.bold("apkg"), p.dim(&format!("v{VERSION}")));
     println!("{}", p.bold("Interactive") + " " + &p.dim("(no arguments — asks questions)"));
-    println!("    pkg                      main menu");
-    println!("    pkg install              ask what to install");
-    println!("    pkg remove               offer a list to remove");
-    println!("    pkg update               show updates and ask");
-    println!("    pkg search               ask for a query");
-    println!("    pkg clean                ask for a cleanup mode");
-    println!("    pkg orphans              ask whether to remove");
+    println!("    apkg                      main menu");
+    println!("    apkg install              ask what to install");
+    println!("    apkg remove               offer a list to remove");
+    println!("    apkg update               show updates and ask");
+    println!("    apkg search               ask for a query");
+    println!("    apkg clean                ask for a cleanup mode");
+    println!("    apkg orphans              ask whether to remove");
     println!();
     println!("{}", p.bold("Scriptable") + " " + &p.dim("(with arguments)"));
-    println!("    pkg install <target…>    repo / group / AUR / git / *.sh / PKGBUILD / *.pkg.tar.*");
-    println!("    pkg remove <name…>       with unneeded dependencies and configs");
-    println!("    pkg update [-n|-y] [repo|aur]");
-    println!("    pkg search <text>        list results");
-    println!("    pkg list [exp|aur|orph|all]");
-    println!("    pkg info <name>          details");
-    println!("    pkg why <name>           who requires it");
-    println!("    pkg files <name>         files owned by the package");
-    println!("    pkg owns <path>          which package owns a file");
-    println!("    pkg status               overview");
-    println!("    pkg self-update [-n]     update pkg itself from GitHub releases");
+    println!("    apkg install <target…>    repo / group / AUR / git / *.sh / PKGBUILD / *.pkg.tar.*");
+    println!("    apkg remove <name…>       with unneeded dependencies and configs");
+    println!("    apkg update [-n|-y] [repo|aur]");
+    println!("    apkg search <text>        list results");
+    println!("    apkg list [exp|aur|orph|all]");
+    println!("    apkg info <name>          details");
+    println!("    apkg why <name>           who requires it");
+    println!("    apkg files <name>         files owned by the package");
+    println!("    apkg owns <path>          which package owns a file");
+    println!("    apkg status               overview");
+    println!("    apkg self-update [-n]     update apkg itself from GitHub releases");
     println!();
     println!("{}", p.bold("Flags"));
     println!("    -n, --dry-run            show the plan, change nothing (install, remove, update)");
@@ -228,7 +228,7 @@ fn dispatch(cmd: &str, rest: &[String]) -> Result<(), String> {
             Ok(())
         }
         "-v" | "--version" => {
-            println!("pkg {VERSION}");
+            println!("apkg {VERSION}");
             Ok(())
         }
         other => Err(format!("unknown command: {other} (try pkg --help)")),

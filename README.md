@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/culexkmr-cmyk/arch-pkg-helper/main/
 - **Local packages** — a directory with a `PKGBUILD` or a `*.pkg.tar.*` file.
 - **Maintenance** — updates, cache cleanup, orphans, lists, `why` / `files` / `owns`.
 - **Safe by default** — `-n` shows the plan without touching the system.
-- **Self-updating** — `pkg update` keeps pkg itself current too.
+- **Self-updating** — `apkg update` keeps apkg itself current too.
 
 ## Install
 
@@ -41,15 +41,15 @@ From source:
 
 ```sh
 cargo build --release
-install -Dm0755 target/release/pkg ~/.local/bin/pkg
+install -Dm0755 target/release/apkg ~/.local/bin/apkg
 ```
 
 ## Updates
 
-- `pkg self-update` replaces the binary with the latest release (sha256-checked, atomic).
-- `pkg update` updates the system and pkg itself.
+- `apkg self-update` replaces the binary with the latest release (sha256-checked, atomic).
+- `apkg update` updates the system and pkg itself.
 - The main menu mentions a new version, checked at most once a day
-  (`PKG_NO_UPDATE_CHECK=1` turns it off).
+  (`APKG_NO_UPDATE_CHECK=1` turns it off).
 
 ## Usage
 
@@ -57,7 +57,7 @@ install -Dm0755 target/release/pkg ~/.local/bin/pkg
 
 ```text
   ╭──────────────────────────────────────────────────────╮
-  │ ▲ pkg  v1.1.0   Arch package helper                  │
+  │ ▲ apkg  v1.1.0   Arch package helper                  │
   │ 1532 packages · 11 AUR · 2 orphans · 6.7 GiB cache   │
   ╰──────────────────────────────────────────────────────╯
 
@@ -72,22 +72,22 @@ install -Dm0755 target/release/pkg ~/.local/bin/pkg
 ```
 
 `0`, `q` or Ctrl+D goes back; `exit` quits from any prompt. Commands without
-arguments (`pkg install`, `pkg remove`, `pkg update`, …) open the same flows directly.
+arguments (`apkg install`, `apkg remove`, `apkg update`, …) open the same flows directly.
 
 ### Commands
 
 ```text
-pkg install <target…>          repo / group / AUR / git / script / PKGBUILD / *.pkg.tar.*
-pkg remove <name…>             with unneeded dependencies and configs
-pkg update [-n|-y] [repo|aur]  system, AUR and pkg itself
-pkg search <text>              repositories and AUR
-pkg info <name>                details
-pkg list [exp|aur|orph|all]    installed packages
-pkg why <name>                 who requires it
-pkg files <name>               files of a package
-pkg owns <path>                which package owns a file
-pkg status                     overview
-pkg self-update [-n]           update pkg only
+apkg install <target…>          repo / group / AUR / git / script / PKGBUILD / *.pkg.tar.*
+apkg remove <name…>             with unneeded dependencies and configs
+apkg update [-n|-y] [repo|aur]  system, AUR and apkg itself
+apkg search <text>              repositories and AUR
+apkg info <name>                details
+apkg list [exp|aur|orph|all]    installed packages
+apkg why <name>                 who requires it
+apkg files <name>               files of a package
+apkg owns <path>                which package owns a file
+apkg status                     overview
+aapkg self-update [-n]           update pkg only
 ```
 
 ### Flags
@@ -106,14 +106,14 @@ prints plain text and returns a non-zero exit code on failure.
 ### Examples
 
 ```sh
-pkg install firefox                 # repository
-pkg install visual-studio-code-bin  # AUR, detected automatically
-pkg install github.com/sharkdp/fd   # git
-pkg install https://example.com/setup.sh
-pkg install ./mypkg/                # PKGBUILD directory
-pkg install -n gnome                # preview a group
-pkg remove -c firefox               # with its dependents
-pkg update -y repo                  # unattended
+apkg install firefox                 # repository
+apkg install visual-studio-code-bin  # AUR, detected automatically
+apkg install github.com/sharkdp/fd   # git
+apkg install https://example.com/setup.sh
+apkg install ./mypkg/                # PKGBUILD directory
+apkg install -n gnome                # preview a group
+apkg remove -c firefox               # with its dependents
+apkg update -y repo                  # unattended
 ```
 
 ## Development

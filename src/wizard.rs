@@ -222,7 +222,7 @@ pub fn update() -> Result<(), String> {
     ui::blank();
 
     if repo.is_empty() && aur.is_empty() {
-        if ui::confirm("Update pkg?", true) {
+        if ui::confirm("Update apkg?", true) {
             report(selfupdate::run(false));
             ui::pause();
         }
@@ -430,7 +430,7 @@ fn home(notice: Option<&str>) {
     let mut lines = vec![
         format!(
             "{}  {}   {}",
-            p.logo("▲ pkg"),
+            p.logo("▲ apkg"),
             p.dim(&format!("v{}", selfupdate::VERSION)),
             p.dim("Arch package helper")
         ),
@@ -442,7 +442,7 @@ fn home(notice: Option<&str>) {
         ),
     ];
     if let Some(v) = notice {
-        lines.push(p.ok(&format!("↑ pkg {v} is out — press 6 to update")));
+        lines.push(p.ok(&format!("↑ apkg {v} is out — press 6 to update")));
     }
     ui::boxed(&lines);
 
