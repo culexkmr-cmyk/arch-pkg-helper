@@ -48,6 +48,23 @@ The release profile optimizes for size (`opt-level = "z"`, LTO, stripping).
 
 ### Interactive
 
+Running `pkg` with no arguments opens the main menu:
+
+```text
+1) Install a package
+2) Remove a package
+3) Update
+4) Search packages
+5) Package info
+6) Lists
+7) Orphans
+8) Clean cache
+9) Status
+```
+
+Each option launches the corresponding conversational flow. Use `0`/cancel or EOF to exit the menu.
+
+
 ```sh
 pkg                 # main menu
 pkg install         # ask what to install
