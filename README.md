@@ -1,5 +1,8 @@
 # pkg — arch-pkg-helper
 
+> **Vibecoded project** — built with the help of AI coding tools.
+
+
 `pkg` is a small Arch Linux package manager front-end written in Rust.
 It unifies **pacman**, the **AUR**, **git** remotes and **install scripts**
 behind one CLI, and drops into a conversational wizard when run without
