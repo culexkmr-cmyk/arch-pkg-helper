@@ -129,4 +129,7 @@ Arch and publishes it with its checksum and `install.sh`.
 
 ## License
 
-[MIT](LICENSE)
+Copyright (C) 2026 culex and arch-pkg-helper contributors.
+
+Licensed under the [GNU Affero General Public License v3.0 only](LICENSE)
+(`AGPL-3.0-only`).
