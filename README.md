@@ -1,4 +1,4 @@
-# pkg — arch-pkg-helper
+# apkg — arch-pkg-helper
 
 > **Vibecoded project** — built with the help of AI coding tools.
 
