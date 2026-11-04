@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# pkg installer.
-#   curl -fsSL https://raw.githubusercontent.com/culexkmr-cmyk/arch-pkg-helper/main/install.sh | bash
+# apkg installer.
+#   curl -fsSL https://raw.githubusercontent.com/culexkmr-cmyk/arch-apkg-helper/main/install.sh | bash
 #   ... | bash -s -- --system        install to /usr/local/bin for all users
 #   ... | bash -s -- --uninstall
 set -euo pipefail
 
-REPO="culexkmr-cmyk/arch-pkg-helper"
+REPO="culexkmr-cmyk/arch-apkg-helper"
 ASSET="pkg-x86_64-linux"
-MARK="# added by pkg installer"
+MARK="# added by apkg installer"
 
 if [ -t 2 ] && [ -z "${NO_COLOR:-}" ]; then
     c() { printf '\033[1;%sm%s\033[0m' "$1" "$2"; }
@@ -25,7 +25,7 @@ usage: install.sh [--system] [--version X.Y.Z] [--from FILE] [--uninstall]
   --system      install to /usr/local/bin (needs root) instead of ~/.local/bin
   --version     install this release instead of the latest
   --from FILE   install a local binary instead of downloading
-  --uninstall   remove pkg and the PATH lines added by this script
+  --uninstall   remove apkg and the PATH lines added by this script
 EOF
 }
 
@@ -47,7 +47,7 @@ as_root() { if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi; }
 
 user_dir="${HOME}/.local/bin"
 if [ "$system" -eq 1 ]; then dest_dir="/usr/local/bin"; else dest_dir="$user_dir"; fi
-dest="$dest_dir/pkg"
+dest="$dest_dir/apkg"
 
 rc_files() {
     local f
@@ -59,22 +59,22 @@ rc_files() {
 }
 
 if [ "$uninstall" -eq 1 ]; then
-    for f in "$user_dir/pkg" "/usr/local/bin/pkg"; do
+    for f in "$user_dir/apkg" "/usr/local/bin/apkg"; do
         [ -e "$f" ] || continue
-        "$f" --version 2>/dev/null | grep -q '^pkg ' || { warn "$f is not this pkg, left alone"; continue; }
+        "$f" --version 2>/dev/null | grep -q '^apkg ' || { warn "$f is not this apkg, left alone"; continue; }
         if [ -w "$(dirname "$f")" ]; then rm -f "$f"; else as_root rm -f "$f"; fi
         ok "removed $f"
     done
     for f in $(rc_files); do
         [ -f "$f" ] && grep -q "$MARK" "$f" && sed -i "/$MARK/d" "$f" && ok "cleaned $f"
     done
-    rm -f "$HOME/.config/fish/conf.d/pkg.fish"
-    rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/pkg"
+    rm -f "$HOME/.config/fish/conf.d/apkg.fish"
+    rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/apkg"
     exit 0
 fi
 
 [ "$(uname -m)" = "x86_64" ] || die "only x86_64 builds are published; build from source: cargo build --release"
-command -v pacman >/dev/null || warn "pacman not found: pkg is made for Arch Linux"
+command -v pacman >/dev/null || warn "pacman not found: apkg is made for Arch Linux"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -93,7 +93,7 @@ else
         esac
     fi
     base="https://github.com/$REPO/releases/download/v$version/$ASSET"
-    say "downloading pkg $version"
+    say "downloading apkg $version"
     curl -fSL --progress-bar --max-time 300 -o "$tmp/$ASSET" "$base" || die "download failed: $base"
     curl -fsSL --max-time 30 -o "$tmp/$ASSET.sha256" "$base.sha256" || die "checksum download failed"
     (cd "$tmp" && sha256sum -c --status "$ASSET.sha256") || die "checksum mismatch"
@@ -102,7 +102,7 @@ fi
 
 chmod 0755 "$tmp/$ASSET"
 got="$("$tmp/$ASSET" --version 2>/dev/null)" || die "the binary does not run on this system"
-case "$got" in pkg\ *) ;; *) die "unexpected binary: $got" ;; esac
+case "$got" in apkg\ *) ;; *) die "unexpected binary: $got" ;; esac
 
 if [ "$system" -eq 1 ]; then
     as_root install -Dm0755 "$tmp/$ASSET" "$dest"
@@ -122,16 +122,16 @@ case ":$PATH:" in
         done
         if command -v fish >/dev/null; then
             mkdir -p "$HOME/.config/fish/conf.d"
-            echo "fish_add_path -g $dest_dir $MARK" > "$HOME/.config/fish/conf.d/pkg.fish"
+            echo "fish_add_path -g $dest_dir $MARK" > "$HOME/.config/fish/conf.d/apkg.fish"
         fi
-        warn "open a new terminal (or run: exec \$SHELL) to use pkg"
+        warn "open a new terminal (or run: exec \$SHELL) to use apkg"
         ;;
 esac
 
-found="$(command -v pkg || true)"
+found="$(command -v apkg || true)"
 if [ -n "$found" ] && [ "$found" != "$dest" ] && case ":$PATH:" in *":$dest_dir:"*) true ;; *) false ;; esac; then
-    warn "another pkg comes first in PATH: $found"
+    warn "another apkg comes first in PATH: $found"
 fi
 
 echo
-say "run: pkg  (updates: pkg self-update, or pkg update with the system)"
+say "run: apkg  (updates: apkg self-update, or apkg update with the system)"

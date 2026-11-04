@@ -4,7 +4,7 @@ use crate::{sys, ui};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const REPO: &str = "culexkmr-cmyk/arch-pkg-helper";
+pub const REPO: &str = "culexkmr-cmyk/arch-apkg-helper";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const ASSET: &str = "pkg-x86_64-linux";
 const CHECK_EVERY: u64 = 24 * 3600;
@@ -91,7 +91,7 @@ struct TempDir(PathBuf);
 impl TempDir {
     fn new() -> Result<Self, String> {
         use std::os::unix::fs::DirBuilderExt;
-        let dir = std::env::temp_dir().join(format!("pkg-update-{}-{}", std::process::id(), now()));
+        let dir = std::env::temp_dir().join(format!("apkg-update-{}-{}", std::process::id(), now()));
         std::fs::DirBuilder::new()
             .mode(0o700)
             .create(&dir)
@@ -115,7 +115,7 @@ pub fn run(dry_run: bool) -> Result<(), String> {
     if std::env::consts::ARCH != "x86_64" {
         return Err(format!("no prebuilt binary for {}", std::env::consts::ARCH));
     }
-    ui::info("checking GitHub for a new pkg…");
+    ui::info("checking GitHub for a new apkg…");
     let latest = latest(15)?;
     remember(&latest);
     if !newer(&latest, VERSION) {
@@ -158,7 +158,7 @@ pub fn run(dry_run: bool) -> Result<(), String> {
 
 fn replace(new: &Path, exe: &Path) -> Result<(), String> {
     let dir = exe.parent().ok_or("own binary has no parent directory")?;
-    let staged = dir.join(".pkg.new");
+    let staged = dir.join(".apkg.new");
     match std::fs::copy(new, &staged) {
         // rename is atomic and safe while the old binary is running
         Ok(_) => std::fs::rename(&staged, exe).map_err(|e| {
