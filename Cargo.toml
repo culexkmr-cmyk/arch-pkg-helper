@@ -1,6 +1,6 @@
 [package]
 name = "pkg"
-version = "5.0.0"
+version = "1.0.0"
 edition = "2021"
 description = "Helper/front-end for Arch Linux packages: pacman, AUR, git and script sources in one CLI (vibecoded)"
 license = "MIT"
