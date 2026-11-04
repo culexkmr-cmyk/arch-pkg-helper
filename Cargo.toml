@@ -1,0 +1,19 @@
+[package]
+name = "pkg"
+version = "5.0.0"
+edition = "2021"
+description = "Package manager for Arch Linux: pacman, AUR, git and script sources in one CLI"
+license = "MIT"
+
+[[bin]]
+name = "pkg"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[dependencies]
