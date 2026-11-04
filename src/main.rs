@@ -1,25 +1,23 @@
-//! pkg — package manager for Arch Linux.
+//! pkg — helper for Arch Linux packages.
 //!
-//! One front-end for pacman, the AUR, git remotes and install scripts, with an
-//! optional conversational mode when run without arguments on a terminal.
+//! One front-end for pacman, the AUR, git remotes, install scripts and local
+//! PKGBUILDs, with a conversational mode when run without arguments.
 
+mod commands;
 mod install;
+mod selfupdate;
 mod sys;
 mod ui;
 mod wizard;
-mod commands;
 
+use commands::{RemoveOpts, UpdateScope};
 use std::process::ExitCode;
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+use selfupdate::VERSION;
 
 fn usage() {
     let p = ui::pal();
-    println!(
-        "{} {} — package manager\n",
-        p.bold("pkg"),
-        p.dim(&format!("v{VERSION}"))
-    );
+    println!("{} {} — helper for Arch Linux packages\n", p.bold("pkg"), p.dim(&format!("v{VERSION}")));
     println!("{}", p.bold("Interactive") + " " + &p.dim("(no arguments — asks questions)"));
     println!("    pkg                      main menu");
     println!("    pkg install              ask what to install");
@@ -29,26 +27,80 @@ fn usage() {
     println!("    pkg clean                ask for a cleanup mode");
     println!("    pkg orphans              ask whether to remove");
     println!();
-    println!("{}", p.bold("Scriptable") + " " + &p.dim("(with arguments — no questions)"));
-    println!("    pkg install <target…>    repo / AUR / github.com/u/r / *.sh");
-    println!("    pkg remove <name…>       with dependencies and configs");
+    println!("{}", p.bold("Scriptable") + " " + &p.dim("(with arguments)"));
+    println!("    pkg install <target…>    repo / group / AUR / git / *.sh / PKGBUILD / *.pkg.tar.*");
+    println!("    pkg remove <name…>       with unneeded dependencies and configs");
+    println!("    pkg update [-n|-y] [repo|aur]");
     println!("    pkg search <text>        list results");
     println!("    pkg list [exp|aur|orph|all]");
     println!("    pkg info <name>          details");
     println!("    pkg why <name>           who requires it");
     println!("    pkg files <name>         files owned by the package");
     println!("    pkg owns <path>          which package owns a file");
+    println!("    pkg status               overview");
+    println!("    pkg self-update [-n]     update pkg itself from GitHub releases");
     println!();
-    println!("{}", p.bold("Flags for install"));
-    println!("    -n, --dry-run            show the plan, change nothing");
+    println!("{}", p.bold("Flags"));
+    println!("    -n, --dry-run            show the plan, change nothing (install, remove, update)");
     println!("    -y, --yes                skip confirmations");
-    println!("    -k, --update             git: pull instead of skipping");
+    println!("    -k, --update             install: git pull instead of skipping existing clones");
+    println!("    -s, --sudo               install: run scripts as root");
+    println!("    -c, --cascade            remove: also remove packages that depend on the targets");
+}
+
+#[derive(Default)]
+struct Flags {
+    dry_run: bool,
+    yes: bool,
+    update_git: bool,
+    sudo: bool,
+    cascade: bool,
+}
+
+fn parse_flags(args: &[String], allowed: &[&str]) -> Result<(Flags, Vec<String>), String> {
+    let mut f = Flags::default();
+    let mut rest = Vec::new();
+    let mut only_args = false;
+    for a in args {
+        if only_args || !a.starts_with('-') || a == "-" {
+            rest.push(a.clone());
+            continue;
+        }
+        if a == "--" {
+            only_args = true;
+            continue;
+        }
+        // -ny is the same as -n -y
+        let shorts: Vec<String> =
+            if a.starts_with("--") { vec![a.clone()] } else { a.chars().skip(1).map(|c| format!("-{c}")).collect() };
+        for s in shorts {
+            let name = match s.as_str() {
+                "-n" | "--dry-run" => "dry-run",
+                "-y" | "--yes" => "yes",
+                "-k" | "--update" => "update",
+                "-s" | "--sudo" => "sudo",
+                "-c" | "--cascade" => "cascade",
+                _ => return Err(format!("unknown flag: {s}")),
+            };
+            if !allowed.contains(&name) {
+                return Err(format!("flag not supported here: {s}"));
+            }
+            match name {
+                "dry-run" => f.dry_run = true,
+                "yes" => f.yes = true,
+                "update" => f.update_git = true,
+                "sudo" => f.sudo = true,
+                _ => f.cascade = true,
+            }
+        }
+    }
+    Ok((f, rest))
 }
 
 fn main() -> ExitCode {
+    reset_sigpipe();
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    // no arguments
     if args.is_empty() {
         if ui::interactive() {
             return map(wizard::main_menu());
@@ -59,137 +111,21 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    let cmd = args[0].as_str();
-    let rest = &args[1..];
-
-    let result = match cmd {
-        "install" | "add" | "i" => {
-            let (opts, targets) = parse_install_flags(rest);
-            if targets.is_empty() {
-                if ui::interactive() {
-                    wizard::install()
-                } else {
-                    ui::fail("need a target or a terminal");
-                    return ExitCode::FAILURE;
-                }
-            } else {
-                install::install_batch(&targets, opts)
-            }
-        }
-        "remove" | "rm" | "del" => {
-            if rest.is_empty() {
-                if ui::interactive() {
-                    wizard::remove()
-                } else {
-                    ui::fail("need a package name or a terminal");
-                    return ExitCode::FAILURE;
-                }
-            } else {
-                commands::remove(rest); Ok(())
-            }
-        }
-        "search" | "find" | "s" => {
-            if rest.is_empty() {
-                if ui::interactive() {
-                    wizard::search()
-                } else {
-                    ui::fail("need a query");
-                    return ExitCode::FAILURE;
-                }
-            } else {
-                commands::search(&rest.join(" "));
-                Ok(())
-            }
-        }
-        "info" | "show" => {
-            if rest.is_empty() {
-                if ui::interactive() {
-                    wizard::info()
-                } else {
-                    ui::fail("need a package name");
-                    return ExitCode::FAILURE;
-                }
-            } else {
-                commands::info(&rest[0]);
-                Ok(())
-            }
-        }
-        "list" | "ls" => {
-            commands::list(rest.first().map(String::as_str).unwrap_or("exp"));
-            Ok(())
-        }
-        "update" | "upgrade" | "up" => {
-            if ui::interactive() {
-                wizard::update()
-            } else {
-                commands::update_preview();
-                Ok(())
-            }
-        }
-        "clean" | "cache" => {
-            if ui::interactive() {
-                wizard::clean()
-            } else {
-                println!("  cache: {}", ui::human_bytes(sys::cache_size()));
-                Ok(())
-            }
-        }
-        "orphans" => {
-            if ui::interactive() {
-                wizard::orphans()
-            } else {
-                for o in sys::orphans() {
-                    println!("{o}");
-                }
-                Ok(())
-            }
-        }
-        "why" | "rdeps" => {
-            if rest.is_empty() {
-                ui::fail("need a package name");
-                return ExitCode::FAILURE;
-            }
-            commands::why(&rest[0]);
-            Ok(())
-        }
-        "files" => {
-            if rest.is_empty() {
-                ui::fail("need a package name");
-                return ExitCode::FAILURE;
-            }
-            commands::files(&rest[0]);
-            Ok(())
-        }
-        "owns" | "who" => {
-            if rest.is_empty() {
-                ui::fail("need a path");
-                return ExitCode::FAILURE;
-            }
-            commands::owns(&rest[0])
-        }
-        "status" => {
-            commands::status();
-            Ok(())
-        }
-        "menu" | "m" => wizard::main_menu(),
-        "-h" | "--help" | "help" => {
-            usage();
-            Ok(())
-        }
-        "-v" | "--version" => {
-            println!("pkg {VERSION}");
-            Ok(())
-        }
-        other => {
-            ui::fail(&format!("unknown command: {other} (try pkg --help)"));
-            return ExitCode::FAILURE;
-        }
-    };
-
-    map(result)
+    map(dispatch(&args[0], &args[1..]))
 }
 
-/// Convert a command result into a process exit code.
+// Rust ignores SIGPIPE, so `pkg search x | head` would panic on a closed pipe.
+fn reset_sigpipe() {
+    extern "C" {
+        fn signal(sig: i32, handler: usize) -> usize;
+    }
+    const SIGPIPE: i32 = 13;
+    const SIG_DFL: usize = 0;
+    unsafe {
+        signal(SIGPIPE, SIG_DFL);
+    }
+}
+
 fn map(r: Result<(), String>) -> ExitCode {
     match r {
         Ok(()) => ExitCode::SUCCESS,
@@ -200,23 +136,119 @@ fn map(r: Result<(), String>) -> ExitCode {
     }
 }
 
-fn parse_install_flags(args: &[String]) -> (install::Opts, Vec<String>) {
-    let mut opts = install::Opts::default();
-    let mut targets = Vec::new();
-    for a in args {
-        match a.as_str() {
-            "-n" | "--dry-run" => opts.dry_run = true,
-            "-y" | "--yes" => opts.assume_yes = true,
-            "-k" | "--update" => opts.update_git = true,
-            "--" => {}
-            other if other.starts_with('-') => {
-                ui::warning(&format!("unknown flag: {other}"));
-            }
-            other => targets.push(other.to_string()),
-        }
-    }
-    (opts, targets)
+fn need_terminal(what: &str) -> Result<(), String> {
+    Err(format!("need {what} or a terminal"))
 }
 
-// ─── non-interactive commands ────────────────────────────────────────────────
+fn dispatch(cmd: &str, rest: &[String]) -> Result<(), String> {
+    match cmd {
+        "install" | "add" | "i" => {
+            let (f, targets) = parse_flags(rest, &["dry-run", "yes", "update", "sudo"])?;
+            if targets.is_empty() {
+                return if ui::interactive() { wizard::install() } else { need_terminal("a target") };
+            }
+            let opts =
+                install::Opts { dry_run: f.dry_run, assume_yes: f.yes, update_git: f.update_git, as_root: f.sudo };
+            install::install_batch(&targets, opts)
+        }
+        "remove" | "rm" | "del" => {
+            let (f, names) = parse_flags(rest, &["dry-run", "yes", "cascade"])?;
+            if names.is_empty() {
+                return if ui::interactive() { wizard::remove() } else { need_terminal("a package name") };
+            }
+            commands::remove_packages(&names, RemoveOpts { dry_run: f.dry_run, assume_yes: f.yes, cascade: f.cascade })
+        }
+        "search" | "find" | "s" => {
+            if rest.is_empty() {
+                return if ui::interactive() { wizard::search() } else { need_terminal("a query") };
+            }
+            commands::search(&rest.join(" "))
+        }
+        "info" | "show" => match rest.first() {
+            Some(name) => commands::info(name),
+            None if ui::interactive() => wizard::info(),
+            None => need_terminal("a package name"),
+        },
+        "list" | "ls" => commands::list(rest.first().map(String::as_str).unwrap_or("exp")),
+        "update" | "upgrade" | "up" => {
+            let (f, what) = parse_flags(rest, &["dry-run", "yes"])?;
+            let scope = match what.first().map(String::as_str) {
+                None | Some("all") => UpdateScope::All,
+                Some("repo") => UpdateScope::Repo,
+                Some("aur") => UpdateScope::Aur,
+                Some(other) => return Err(format!("update: unknown scope {other} (all|repo|aur)")),
+            };
+            if f.dry_run {
+                commands::update_preview(scope);
+                Ok(())
+            } else if f.yes {
+                commands::run_update(scope, true)
+            } else if ui::interactive() && what.is_empty() {
+                wizard::update()
+            } else if ui::interactive() {
+                commands::run_update(scope, false)
+            } else {
+                commands::update_preview(scope);
+                Ok(())
+            }
+        }
+        "clean" | "cache" => {
+            if ui::interactive() {
+                wizard::clean()
+            } else {
+                println!("cache: {} in {} archives", ui::human_bytes(sys::cache_size()), sys::cache_archives());
+                Ok(())
+            }
+        }
+        "orphans" => {
+            if ui::interactive() {
+                wizard::orphans()
+            } else {
+                sys::orphans().iter().for_each(|o| println!("{o}"));
+                Ok(())
+            }
+        }
+        "why" | "rdeps" => commands::why(rest.first().ok_or("need a package name")?),
+        "files" => commands::files(rest.first().ok_or("need a package name")?),
+        "owns" | "who" => commands::owns(rest.first().ok_or("need a path")?),
+        "status" => {
+            commands::status();
+            Ok(())
+        }
+        "self-update" | "selfupdate" => {
+            let (f, extra) = parse_flags(rest, &["dry-run"])?;
+            if let Some(x) = extra.first() {
+                return Err(format!("self-update takes no arguments: {x}"));
+            }
+            selfupdate::run(f.dry_run)
+        }
+        "menu" | "m" => wizard::main_menu(),
+        "-h" | "--help" | "help" => {
+            usage();
+            Ok(())
+        }
+        "-v" | "--version" => {
+            println!("pkg {VERSION}");
+            Ok(())
+        }
+        other => Err(format!("unknown command: {other} (try pkg --help)")),
+    }
+}
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v(a: &[&str]) -> Vec<String> {
+        a.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn flags() {
+        let (f, rest) = parse_flags(&v(&["-ny", "firefox", "--", "-weird"]), &["dry-run", "yes"]).unwrap();
+        assert!(f.dry_run && f.yes);
+        assert_eq!(rest, v(&["firefox", "-weird"]));
+        assert!(parse_flags(&v(&["-c"]), &["yes"]).is_err());
+        assert!(parse_flags(&v(&["--bogus"]), &["yes"]).is_err());
+    }
+}

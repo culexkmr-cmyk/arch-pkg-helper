@@ -1,7 +1,9 @@
-use super::domain::{Opts, Source};
-use super::infra::{AurInstaller, GitInstaller, PacmanInstaller, PkgbuildInstaller, Resolver, ScriptInstaller};
+use super::domain::{Opts, Source, Target};
+use super::infra::{
+    AurInstaller, GitInstaller, PacmanInstaller, PkgFileInstaller, PkgbuildInstaller, Resolver, ScriptInstaller,
+};
 use super::ports::{Installer, SourceResolver};
-use crate::{ui};
+use crate::ui;
 use std::collections::BTreeMap;
 
 pub struct InstallService {
@@ -17,97 +19,71 @@ impl Default for InstallService {
         installers.insert(Source::Git, Box::new(GitInstaller));
         installers.insert(Source::Script, Box::new(ScriptInstaller));
         installers.insert(Source::Pkgbuild, Box::new(PkgbuildInstaller));
-        Self {
-            resolver: Box::new(Resolver),
-            installers,
-        }
+        installers.insert(Source::PkgFile, Box::new(PkgFileInstaller));
+        Self { resolver: Box::new(Resolver), installers }
+    }
+}
+
+fn header(source: Source) {
+    match source {
+        Source::Repo => ui::header_repo(source.label()),
+        Source::Aur => ui::header_aur(source.label()),
+        Source::Git => ui::header_git(source.label()),
+        Source::Script => ui::header_script(source.label()),
+        _ => ui::header_head(source.label()),
     }
 }
 
 impl InstallService {
-    pub fn install(&self, target: &str, opts: Opts) -> Result<(), String> {
-        self.install_batch(&[target.to_string()], opts)
-    }
-
     pub fn install_batch(&self, targets: &[String], opts: Opts) -> Result<(), String> {
-        let mut repo = Vec::new();
-        let mut aur = Vec::new();
-        let mut others = Vec::new();
-
+        let mut groups: BTreeMap<Source, Vec<Target>> = BTreeMap::new();
         for t in targets {
-            match self.resolver.classify(t) {
-                Source::Repo => repo.push(t.clone()),
-                Source::Aur => aur.push(t.clone()),
-                _ => others.push(t.clone()),
+            let target = self.resolver.resolve(t);
+            let list = groups.entry(target.source).or_default();
+            if !list.iter().any(|x| x.name == target.name) {
+                list.push(target);
             }
         }
 
-        if !repo.is_empty() {
-            ui::header_repo("repository");
-            ui::table(&super::rows_for(&repo, Source::Repo));
+        let unknown = groups.remove(&Source::Unknown).unwrap_or_default();
+        for t in &unknown {
+            ui::warning(&format!("not found in repositories, AUR or on disk: {}", t.raw));
         }
-        if !aur.is_empty() {
-            ui::header_aur("AUR");
-            ui::table(&super::rows_for(&aur, Source::Aur));
-        }
-        for t in &others {
-            let src = self.resolver.classify(t);
-            if src == Source::Unknown {
-                ui::warning(&format!("not found in repositories or AUR: {t}"));
-            } else {
-                ui::header_head(src.label());
-                if let Some(installer) = self.installers.get(&src) {
-                    installer.preview(t);
-                }
-            }
-        }
-
-        if repo.is_empty() && aur.is_empty() && others.is_empty() {
+        if groups.is_empty() {
             return Err("nothing to install".into());
         }
-        if opts.dry_run {
-            ui::info("dry run: nothing was changed");
-            return Ok(());
+
+        for (source, list) in &groups {
+            header(*source);
+            if let Some(installer) = self.installers.get(source) {
+                installer.preview(list);
+            }
         }
-        if !opts.assume_yes && !ui::confirm("Proceed?", true) {
+        ui::blank();
+
+        if !opts.dry_run && !opts.assume_yes && !ui::confirm("Proceed?", true) {
             ui::info("cancelled");
             return Ok(());
         }
 
         let mut failures = 0;
-        if !repo.is_empty() {
-            if let Some(installer) = self.installers.get(&Source::Repo) {
-                if let Err(e) = installer.install_batch(&repo, opts) {
-                    ui::warning(&e);
+        for (source, list) in &groups {
+            if let Some(installer) = self.installers.get(source) {
+                if let Err(e) = installer.install(list, opts) {
+                    ui::fail(&e);
                     failures += 1;
                 }
             }
         }
-        if !aur.is_empty() {
-            if let Some(installer) = self.installers.get(&Source::Aur) {
-                if let Err(e) = installer.install_batch(&aur, opts) {
-                    ui::warning(&e);
-                    failures += 1;
-                }
-            }
-        }
-        for t in &others {
-            let src = self.resolver.classify(t);
-            if src == Source::Unknown {
-                continue;
-            }
-            if let Some(installer) = self.installers.get(&src) {
-                if let Err(e) = installer.install_batch(&[t.clone()], opts) {
-                    ui::warning(&e);
-                    failures += 1;
-                }
-            }
+        if opts.dry_run {
+            ui::info("dry run: nothing was changed");
         }
 
-        if failures == 0 {
-            Ok(())
-        } else {
-            Err(format!("{failures} installer(s) failed"))
+        match (failures, unknown.len()) {
+            (0, 0) => Ok(()),
+            (0, n) => Err(format!("{n} target(s) not found")),
+            (f, 0) => Err(format!("{f} installer(s) failed")),
+            (f, n) => Err(format!("{f} installer(s) failed, {n} target(s) not found")),
         }
     }
 }

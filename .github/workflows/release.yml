@@ -1,0 +1,42 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Toolchain
+        run: pacman -Syu --noconfirm --needed rust github-cli
+
+      - uses: actions/checkout@v4
+
+      - name: Tag matches Cargo.toml
+        run: |
+          want="v$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
+          [ "$want" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME, Cargo.toml says $want"; exit 1; }
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build
+        run: |
+          cargo build --release --locked
+          cp target/release/pkg pkg-x86_64-linux
+          sha256sum pkg-x86_64-linux > pkg-x86_64-linux.sha256
+          ./pkg-x86_64-linux --version
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf 'Install or update:\n\n```sh\ncurl -fsSL https://raw.githubusercontent.com/%s/main/install.sh | bash\n```\n\nAlready installed: `pkg self-update`\n' "$GITHUB_REPOSITORY" > notes.md
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" --notes-file notes.md \
+            pkg-x86_64-linux pkg-x86_64-linux.sha256 install.sh

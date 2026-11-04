@@ -1,15 +1,18 @@
 //! Conversational flows: numbered menus and prompts (no full-screen TUI).
 
-use crate::install::{self, Opts};
+use crate::commands::{self, RemoveOpts, UpdateScope};
+use crate::install::{self, Opts, Source};
+use crate::selfupdate;
 use crate::sys;
 use crate::ui;
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SearchResult {
     pub name: String,
     pub version: String,
     pub source: String,
     pub description: String,
+    pub installed: bool,
 }
 
 impl SearchResult {
@@ -18,95 +21,90 @@ impl SearchResult {
     }
 }
 
-/// Search official repositories and (if paru is present) the AUR.
-pub fn do_search(query: &str, limit: usize) -> Vec<SearchResult> {
-    let mut out = Vec::new();
-
-    if let Ok(text) = sys::run("pacman", &["-Ss", query]) {
-        let mut current: Option<SearchResult> = None;
-        for line in text.lines() {
-            if line.starts_with(' ') {
-                if let Some(mut r) = current.take() {
-                    r.description = line.trim().to_string();
-                    out.push(r);
-                }
-                continue;
-            }
-            if let Some((left, _right)) = line.split_once(' ') {
-                if let Some((repo, name)) = left.split_once('/') {
-                    let version = line
-                        .split_whitespace()
-                        .nth(1)
-                        .unwrap_or("")
-                        .to_string();
-                    current = Some(SearchResult {
-                        name: name.to_string(),
-                        version,
-                        source: repo.to_string(),
-                        description: String::new(),
-                    });
+/// `repo/name version [...]` headers followed by indented descriptions; the
+/// format shared by `pacman -Ss`, `paru -Ss` and `yay -Ss`.
+pub fn parse_search(text: &str, only_aur: bool, limit: usize) -> Vec<SearchResult> {
+    let mut out: Vec<SearchResult> = Vec::new();
+    let mut last_kept = false;
+    for raw in text.lines() {
+        let line = sys::strip_ansi(raw);
+        if line.starts_with(' ') {
+            if last_kept {
+                if let Some(r) = out.last_mut() {
+                    if r.description.is_empty() {
+                        r.description = line.trim().to_string();
+                    }
                 }
             }
-            if out.len() >= limit {
-                break;
-            }
+            continue;
         }
-        if let Some(r) = current.take() {
-            out.push(r);
+        last_kept = false;
+        if out.len() >= limit {
+            continue;
         }
+        let mut words = line.split_whitespace();
+        let Some((repo, name)) = words.next().and_then(|w| w.split_once('/')) else {
+            continue;
+        };
+        if only_aur != (repo == "aur") || out.iter().any(|r| r.name == name) {
+            continue;
+        }
+        out.push(SearchResult {
+            name: name.to_string(),
+            version: words.next().unwrap_or("").to_string(),
+            source: repo.to_string(),
+            description: String::new(),
+            installed: line.contains("[installed") || line.contains("(Installed"),
+        });
+        last_kept = true;
     }
-    out.truncate(limit);
-
-    if sys::which("paru") {
-        if let Ok(text) = sys::run("paru", &["-Ss", query]) {
-            let mut n = 0;
-            for line in text.lines() {
-                let clean = sys::strip_ansi(line);
-                if let Some(rest) = clean.strip_prefix("aur/") {
-                    let name = rest.split_whitespace().next().unwrap_or("").to_string();
-                    if name.is_empty() {
-                        continue;
-                    }
-                    out.push(SearchResult {
-                        name,
-                        version: String::new(),
-                        source: "aur".into(),
-                        description: String::new(),
-                    });
-                    n += 1;
-                    if n >= 8 {
-                        break;
-                    }
-                } else if clean.starts_with(' ') {
-                    if let Some(last) = out.last_mut() {
-                        if last.is_aur() && last.description.is_empty() {
-                            last.description = clean.trim().to_string();
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     out
 }
 
-/// Print search results as a numbered list with colour-coded sources.
+/// Search official repositories and, with an AUR helper, the AUR.
+pub fn do_search(query: &str, limit: usize) -> Vec<SearchResult> {
+    let words: Vec<&str> = query.split_whitespace().collect();
+    let mut args = vec!["-Ss"];
+    args.extend(&words);
+    let mut out = sys::run("pacman", &args).map(|t| parse_search(&t, false, limit)).unwrap_or_default();
+    if let Some(helper) = sys::aur_helper() {
+        let mut args = vec!["-Ss", "--aur"];
+        args.extend(&words);
+        if let Ok(text) = sys::run(helper, &args) {
+            let aur: Vec<SearchResult> =
+                parse_search(&text, true, 8).into_iter().filter(|a| !out.iter().any(|r| r.name == a.name)).collect();
+            out.extend(aur);
+        }
+    }
+    out
+}
+
 pub fn print_results(results: &[SearchResult]) {
     let p = ui::pal();
-    let width = results.len().to_string().len().max(2);
+    let idx_w = results.len().to_string().len();
+    let name_w = results.iter().map(|r| r.name.chars().count()).max().unwrap_or(0).clamp(8, 30);
+    let ver_w = results.iter().map(|r| r.version.chars().count()).max().unwrap_or(0).clamp(4, 18);
+    let indent = " ".repeat(idx_w + 3);
+    let desc_w = ui::width().saturating_sub(idx_w + 6).clamp(20, 100);
     for (i, r) in results.iter().enumerate() {
-        let src = if r.is_aur() { p.aur(&r.source) } else { p.repo(&r.source) };
+        let (dot, src) = if r.is_aur() { (p.aur("●"), p.aur(&r.source)) } else { (p.repo("●"), p.repo(&r.source)) };
+        let mark = if r.installed { format!("  {}", p.ok("✓ installed")) } else { String::new() };
+        let ver = if r.version.is_empty() { "—" } else { &r.version };
         println!(
-            "   {}) {:<24} {:<12} {}",
-            p.dim(&format!("{:>w$}", i + 1, w = width)),
-            p.bold(&r.name),
-            p.dim(if r.version.is_empty() { "—" } else { &r.version }),
-            src
+            "  {} {dot} {} {} {src}{mark}",
+            p.accent(&format!("{:>idx_w$}", i + 1)),
+            p.bold(&format!("{:<name_w$}", ui::truncate(&r.name, name_w))),
+            p.dim(&format!("{:<ver_w$}", ui::truncate(ver, ver_w))),
         );
         if !r.description.is_empty() {
-            println!("       {}", p.dim(&r.description));
+            println!("  {indent}{}", p.dim(&ui::truncate(&r.description, desc_w)));
         }
+    }
+}
+
+fn report(result: Result<(), String>) {
+    if let Err(e) = result {
+        ui::fail(&e);
     }
 }
 
@@ -115,8 +113,7 @@ pub fn print_results(results: &[SearchResult]) {
 pub fn install() -> Result<(), String> {
     loop {
         ui::header_head("install");
-        let Some(answer) = ui::ask("what to install? (name, several names, or search text)", None)
-        else {
+        let Some(answer) = ui::ask("what to install? (name, several names, URL, path or search text)", None) else {
             return Ok(());
         };
         let q = answer.trim().to_string();
@@ -124,44 +121,15 @@ pub fn install() -> Result<(), String> {
             continue;
         }
 
-        // URL or path: install directly
-        if q.contains("://") || q.starts_with("./") || q.starts_with('/') || q.contains("github.com")
-        {
-            install::install_batch(&[q], Opts::default())?;
-            ui::pause();
-            return Ok(());
-        }
-
-        // several words: if all resolve, install as a batch
         let words: Vec<String> = q.split_whitespace().map(str::to_string).collect();
-        let all_known = words
-            .iter()
-            .all(|w| sys::in_repo(w) || sys::is_aur(w) || sys::installed(w));
-
+        let all_known = words.iter().all(|w| install::resolve(w).source != Source::Unknown);
         if all_known {
-            ui::blank();
-            let rows: Vec<ui::Row> = words
-                .iter()
-                .map(|w| {
-                    if sys::is_aur(w) {
-                        ui::Row::aur(w, "", "AUR")
-                    } else {
-                        ui::Row::repo(w, "", "repository")
-                    }
-                })
-                .collect();
-            ui::table(&rows);
-            if ui::confirm(&format!("Install {} package(s)?", words.len()), true) {
-                install::install_batch(&words, Opts::default())?;
-            } else {
-                ui::info("cancelled");
-            }
+            report(install::install_batch(&words, Opts::default()));
             ui::pause();
             return Ok(());
         }
 
-        // otherwise: search
-        let results = do_search(&q, 12);
+        let results = ui::spin("searching…", || do_search(&q, 12));
         if results.is_empty() {
             ui::warning(&format!("nothing found for “{q}”"));
             if !ui::confirm("Try another query?", true) {
@@ -173,39 +141,15 @@ pub fn install() -> Result<(), String> {
         print_results(&results);
         ui::blank();
 
-        let picked = match ui::pick_many(results.len(), "numbers to install (1,3-5 / all) · 0 — back")
-        {
-            Some(v) => v,
-            None => return Ok(()),
+        let Some(picked) = ui::pick_many(results.len(), "numbers to install (1,3-5 / all) · 0 — back") else {
+            continue;
         };
-
         let chosen: Vec<String> = picked
             .iter()
-            .filter_map(|i| results.get(i - 1).map(|r| r.name.clone()))
+            .filter_map(|i| results.get(i - 1))
+            .map(|r| if r.is_aur() { format!("aur:{}", r.name) } else { r.name.clone() })
             .collect();
-        if chosen.is_empty() {
-            continue;
-        }
-
-        ui::blank();
-        ui::header_head("to install");
-        let rows: Vec<ui::Row> = chosen
-            .iter()
-            .map(|c| {
-                if sys::is_aur(c) {
-                    ui::Row::aur(c, "", "AUR")
-                } else {
-                    ui::Row::repo(c, "", "repository")
-                }
-            })
-            .collect();
-        ui::table(&rows);
-
-        if ui::confirm("Install these?", true) {
-            install::install_batch(&chosen, Opts::default())?;
-        } else {
-            ui::info("cancelled");
-        }
+        report(install::install_batch(&chosen, Opts::default()));
         ui::pause();
         return Ok(());
     }
@@ -218,112 +162,45 @@ pub fn remove() -> Result<(), String> {
     let Some(filter) = ui::ask("name filter (empty — explicit packages)", None) else {
         return Ok(());
     };
-    let filter = filter.trim().to_string();
+    let filter = filter.trim().to_lowercase();
 
-    // With a filter we search everything (including dependencies and orphans);
-    // without one we only offer explicit packages, which is safer.
-    let source = if filter.is_empty() {
-        sys::explicit_packages()
-    } else {
-        sys::all_packages()
-    };
-
-    let names: Vec<String> = source
-        .into_iter()
-        .map(|(n, _)| n)
-        .filter(|n| filter.is_empty() || n.contains(&filter))
-        .collect();
+    // without a filter only explicit packages are offered, which is safer
+    let source = if filter.is_empty() { sys::explicit_packages() } else { sys::all_packages() };
+    let mut names: Vec<String> =
+        source.into_iter().map(|(n, _)| n).filter(|n| filter.is_empty() || n.contains(&filter)).collect();
 
     if names.is_empty() {
         ui::warning("nothing found");
         ui::pause();
         return Ok(());
     }
-
-    let names = &names[..names.len().min(40)];
-    if names.len() == 40 {
-        ui::info("showing first 40 — narrow the filter");
+    const SHOWN: usize = 40;
+    if names.len() > SHOWN {
+        ui::info(&format!("showing {SHOWN} of {} — narrow the filter", names.len()));
+        names.truncate(SHOWN);
     }
 
     ui::blank();
+    let infos = sys::installed_infos(&names);
     let rows: Vec<ui::Row> = names
         .iter()
         .map(|n| {
-            let size = sys::installed_info(n).map(|i| i.installed_size).unwrap_or_default();
-            let deps = sys::reverse_deps(n).len();
-            if deps > 0 {
-                ui::Row::warn(n, &size, &format!("needed by {deps}"))
-            } else {
-                ui::Row::plain(n, &size, "")
+            let info = infos.get(n);
+            let size = info.map(|i| i.installed_size.clone()).unwrap_or_default();
+            match info.map(|i| i.required_by.len()).unwrap_or(0) {
+                0 => ui::Row::plain(n, &size, ""),
+                k => ui::Row::warn(n, &size, &format!("needed by {k}")),
             }
         })
         .collect();
-    ui::table(&rows);
+    ui::numbered_table(&rows);
     ui::blank();
 
     let Some(picked) = ui::pick_many(names.len(), "numbers to remove (1,3-5) · 0 — back") else {
         return Ok(());
     };
-    let chosen: Vec<String> = picked
-        .iter()
-        .filter_map(|i| names.get(i - 1).cloned())
-        .collect();
-    if chosen.is_empty() {
-        return Ok(());
-    }
-
-    ui::blank();
-    ui::header_err("will be removed");
-    let rows: Vec<ui::Row> = chosen
-        .iter()
-        .map(|n| {
-            let deps = sys::reverse_deps(n);
-            if deps.is_empty() {
-                ui::Row::plain(n, "", "leaf")
-            } else {
-                ui::Row::warn(n, "", &format!("pulls in {} dependent(s)", deps.len()))
-            }
-        })
-        .collect();
-    ui::table(&rows);
-
-    let mut dependents: Vec<String> = Vec::new();
-    for n in &chosen {
-        for d in sys::reverse_deps(n) {
-            if !chosen.contains(&d) && !dependents.contains(&d) {
-                dependents.push(d);
-            }
-        }
-    }
-    if !dependents.is_empty() {
-        println!("\n  {}", ui::pal().warn("these will go away too:"));
-        for d in dependents.iter().take(12) {
-            println!("     {d}");
-        }
-    }
-
-    ui::blank();
-    if !ui::confirm("Remove (with dependencies and configs)?", false) {
-        ui::info("cancelled");
-        ui::pause();
-        return Ok(());
-    }
-    if chosen.len() > 3 && !ui::confirm(&format!("Really remove {} packages?", chosen.len()), false) {
-        ui::info("cancelled");
-        ui::pause();
-        return Ok(());
-    }
-
-    let mut args = vec!["pacman".to_string(), "-Rns".to_string(), "--noconfirm".to_string()];
-    args.extend(chosen.iter().cloned());
-    let full = sys::sudo_args(&args);
-    let (cmd, rest) = full.split_first().unwrap();
-    let code = sys::stream(cmd, rest, &["error", "removing", "failed"]);
-    if code == 0 {
-        ui::success(&chosen.join(" "));
-    } else {
-        ui::warning("not everything was removed");
-    }
+    let chosen: Vec<String> = picked.iter().filter_map(|i| names.get(i - 1).cloned()).collect();
+    report(commands::remove_packages(&chosen, RemoveOpts::default()));
     ui::pause();
     Ok(())
 }
@@ -332,79 +209,36 @@ pub fn remove() -> Result<(), String> {
 
 pub fn update() -> Result<(), String> {
     ui::header_head("update");
-    let repo = sys::updates_repo();
-    let aur = sys::updates_aur();
+    let (repo, aur, own) =
+        ui::spin("checking for updates…", || (sys::updates_repo(), sys::updates_aur(), selfupdate::available(10)));
 
-    if repo.is_empty() && aur.is_empty() {
+    if repo.is_empty() && aur.is_empty() && own.is_none() {
+        ui::blank();
         ui::success("everything is up to date");
         ui::pause();
         return Ok(());
     }
-
-    if !repo.is_empty() {
-        println!("  {}", ui::pal().repo(&format!("repository ({})", repo.len())));
-        for l in &repo {
-            println!("     {l}");
-        }
-    }
-    if !aur.is_empty() {
-        println!("\n  {}", ui::pal().aur(&format!("AUR ({})", aur.len())));
-        for l in &aur {
-            println!("     {l}");
-        }
-    }
-
+    commands::print_updates(&repo, &aur, own.as_deref());
     ui::blank();
-    let items = vec![
-        "Everything (repository + AUR)".to_string(),
-        "Repository only".to_string(),
-        "AUR only".to_string(),
-    ];
+
+    if repo.is_empty() && aur.is_empty() {
+        if ui::confirm("Update pkg?", true) {
+            report(selfupdate::run(false));
+            ui::pause();
+        }
+        return Ok(());
+    }
+    let mut items = vec!["Everything".to_string(), "Repositories only".to_string()];
+    if sys::aur_helper().is_some() && !aur.is_empty() {
+        items.push("AUR only".to_string());
+    }
     let Some(choice) = ui::menu("what to update?", &items) else {
         return Ok(());
     };
-
-    if !ui::confirm("Start the update?", true) {
-        ui::info("cancelled");
-        ui::pause();
-        return Ok(());
-    }
-
-    let keep_all: &[&str] = &["error", "conflict", "failed", ":: ", "upgrading", "Compiling"];
-    let code = match choice {
-        0 => {
-            if sys::which("paru") {
-                sys::stream("paru", &["-Syu".into(), "--noconfirm".into()], keep_all)
-            } else {
-                run_sudo_stream(&["-Syu", "--noconfirm"], keep_all)
-            }
-        }
-        1 => run_sudo_stream(&["-Syu", "--noconfirm"], keep_all),
-        _ => {
-            if !sys::which("paru") {
-                ui::warning("paru is not installed");
-                ui::pause();
-                return Ok(());
-            }
-            sys::stream("paru", &["-Sua".into(), "--noconfirm".into()], keep_all)
-        }
-    };
-
-    if code == 0 {
-        ui::success("updated");
-    } else {
-        ui::warning(&format!("exit code {code}"));
-    }
+    let scope = [UpdateScope::All, UpdateScope::Repo, UpdateScope::Aur][choice];
+    report(commands::run_update(scope, false));
     ui::pause();
     Ok(())
-}
-
-fn run_sudo_stream(args: &[&str], keep: &[&str]) -> i32 {
-    let mut owned: Vec<String> = vec!["pacman".to_string()];
-    owned.extend(args.iter().map(|s| s.to_string()));
-    let full = sys::sudo_args(&owned);
-    let (cmd, rest) = full.split_first().unwrap();
-    sys::stream(cmd, rest, keep)
 }
 
 // ─── search ──────────────────────────────────────────────────────────────────
@@ -420,7 +254,7 @@ pub fn search() -> Result<(), String> {
             continue;
         }
 
-        let results = do_search(&q, 12);
+        let results = ui::spin("searching…", || do_search(&q, 12));
         if results.is_empty() {
             ui::warning("nothing found");
             if !ui::confirm("Try again?", true) {
@@ -433,16 +267,17 @@ pub fn search() -> Result<(), String> {
         ui::blank();
 
         let Some(picked) = ui::pick_many(results.len(), "number for details · 0 — back") else {
-            return Ok(());
+            continue;
         };
-        let name = results[picked[0] - 1].name.clone();
+        let r = &results[picked[0] - 1];
 
         ui::blank();
-        crate::commands::info(&name);
+        report(commands::info(&r.name));
         ui::blank();
 
-        if ui::confirm(&format!("Install {name}?"), false) {
-            install::install_batch(&[name], Opts::default())?;
+        if !r.installed && ui::confirm(&format!("Install {}?", r.name), false) {
+            let target = if r.is_aur() { format!("aur:{}", r.name) } else { r.name.clone() };
+            report(install::install_batch(&[target], Opts { assume_yes: true, ..Opts::default() }));
             ui::pause();
             return Ok(());
         }
@@ -460,14 +295,9 @@ pub fn info() -> Result<(), String> {
         return Ok(());
     };
     let name = name.trim();
-    if name.is_empty() {
-        return Ok(());
-    }
-    if sys::in_repo(name) || sys::installed(name) || sys::is_aur(name) {
+    if !name.is_empty() {
         ui::blank();
-        crate::commands::info(name);
-    } else {
-        ui::warning(&format!("not found: {name}"));
+        report(commands::info(name));
     }
     ui::pause();
     Ok(())
@@ -486,8 +316,7 @@ pub fn list() -> Result<(), String> {
     let Some(choice) = ui::menu("what to show?", &items) else {
         return Ok(());
     };
-    let kind = ["exp", "aur", "orph", "all"][choice];
-    crate::commands::list(kind);
+    report(commands::list(["exp", "aur", "orph", "all"][choice]));
     ui::pause();
     Ok(())
 }
@@ -496,48 +325,30 @@ pub fn list() -> Result<(), String> {
 
 pub fn clean() -> Result<(), String> {
     ui::header_head("cache cleanup");
-    let before = sys::cache_size();
-    let archives = sys::cache_archives();
-    println!(
-        "  now: {} · archives: {archives}\n",
-        ui::pal().bold(&ui::human_bytes(before))
-    );
+    ui::info(&format!(
+        "now {} in {} archives",
+        ui::pal().bold(&ui::human_bytes(sys::cache_size())),
+        sys::cache_archives()
+    ));
+    ui::blank();
 
     let items = vec![
-        "Safe — keep one version of each".to_string(),
+        "Safe — keep the latest version of each".to_string(),
         "Only uninstalled packages".to_string(),
         "Everything — free the most space".to_string(),
     ];
     let Some(choice) = ui::menu("mode", &items) else {
         return Ok(());
     };
-
-    match choice {
-        0 => println!("  {}", ui::pal().dim("old versions are dropped, one stays")),
-        1 => println!("  {}", ui::pal().dim("packages not present in the system are dropped")),
-        _ => println!("  {}", ui::pal().warn("everything is deleted")),
+    if choice == 2 {
+        ui::warning("downgrading will need a download again");
     }
-
-    if !ui::confirm("Proceed?", false) {
+    if !ui::confirm("Proceed?", choice != 2) {
         ui::info("cancelled");
         ui::pause();
         return Ok(());
     }
-
-    let arg = match choice {
-        0 => "-rk1",
-        1 => "-ruk0",
-        _ => "-rk0",
-    };
-    let _ = run_sudo_stream(&["paccache", arg], &[]);
-
-    let after = sys::cache_size();
-    let saved = before.saturating_sub(after);
-    if saved > 0 {
-        ui::success(&format!("freed {}", ui::human_bytes(saved)));
-    } else {
-        ui::info("nothing to clean");
-    }
+    report(commands::clean(choice));
     ui::pause();
     Ok(())
 }
@@ -553,54 +364,24 @@ pub fn orphans() -> Result<(), String> {
         return Ok(());
     }
 
-    println!("  found: {}\n", ui::pal().bold(&list.len().to_string()));
-    let rows: Vec<ui::Row> = list
-        .iter()
-        .map(|n| {
-            let size = sys::installed_info(n).map(|i| i.installed_size).unwrap_or_default();
-            ui::Row::warn(n, &size, "nothing depends on it")
-        })
-        .collect();
-    ui::table(&rows);
+    ui::info(&format!("found {}", ui::pal().bold(&list.len().to_string())));
+    ui::blank();
+    ui::numbered_table(&commands::orphan_rows(&list));
 
     ui::blank();
     let items = vec!["Remove all".to_string(), "Choose".to_string()];
     let Some(choice) = ui::menu("what to do?", &items) else {
         return Ok(());
     };
-
-    let chosen: Vec<String> = match choice {
-        0 => list.clone(),
-        _ => {
-            let Some(picked) = ui::pick_many(list.len(), "numbers (1,3-5 / all)") else {
-                return Ok(());
-            };
-            picked
-                .iter()
-                .filter_map(|i| list.get(i - 1).cloned())
-                .collect()
-        }
-    };
-    if chosen.is_empty() {
-        return Ok(());
-    }
-
-    if !ui::confirm(&format!("Remove {} package(s)?", chosen.len()), false) {
-        ui::info("cancelled");
-        ui::pause();
-        return Ok(());
-    }
-
-    let mut args = vec!["pacman".to_string(), "-Rns".to_string(), "--noconfirm".to_string()];
-    args.extend(chosen.iter().cloned());
-    let full = sys::sudo_args(&args);
-    let (cmd, rest) = full.split_first().unwrap();
-    let code = sys::stream(cmd, rest, &["error", "removing", "failed"]);
-    if code == 0 {
-        ui::success(&format!("removed {}", chosen.len()));
+    let chosen: Vec<String> = if choice == 0 {
+        list.clone()
     } else {
-        ui::warning("not everything was removed");
-    }
+        let Some(picked) = ui::pick_many(list.len(), "numbers (1,3-5 / all) · 0 — back") else {
+            return Ok(());
+        };
+        picked.iter().filter_map(|i| list.get(i - 1).cloned()).collect()
+    };
+    report(commands::remove_packages(&chosen, RemoveOpts::default()));
     ui::pause();
     Ok(())
 }
@@ -608,48 +389,111 @@ pub fn orphans() -> Result<(), String> {
 // ─── main menu ───────────────────────────────────────────────────────────────
 
 pub fn main_menu() -> Result<(), String> {
+    let notice = selfupdate::notice();
     loop {
-        // Counts are intentionally not computed here: running pacman/paru before
-        // drawing the menu makes startup feel slow. The detailed numbers are
-        // shown by the corresponding commands instead.
-        let update_label = "Update".to_string();
-        let orphan_label = "Orphans".to_string();
-
-        let items = vec![
-            "Install a package".to_string(),
-            "Remove a package".to_string(),
-            update_label,
-            "Search packages".to_string(),
-            "Package info".to_string(),
-            "Lists".to_string(),
-            orphan_label,
-            "Clean cache".to_string(),
-            "Status".to_string(),
-        ];
-
-        let Some(choice) = ui::menu("what to do?", &items) else {
+        ui::clear();
+        home(notice.as_deref());
+        let Some(choice) = ui::read_choice(9) else {
             return Ok(());
         };
-
         let outcome = match choice {
             0 => install(),
             1 => remove(),
-            2 => update(),
-            3 => search(),
-            4 => info(),
-            5 => list(),
+            2 => search(),
+            3 => info(),
+            4 => list(),
+            5 => update(),
             6 => orphans(),
             7 => clean(),
-            8 => {
-                crate::commands::status();
+            _ => {
+                commands::status();
                 ui::pause();
                 Ok(())
             }
-            _ => return Ok(()),
         };
         if let Err(e) = outcome {
             ui::fail(&e);
             ui::pause();
         }
+    }
+}
+
+fn home(notice: Option<&str>) {
+    let p = ui::pal();
+    let total = sys::count(&["-Q"]);
+    let aur = sys::count(&["-Qm"]);
+    let orphans = sys::orphans().len();
+    let cache = sys::cache_size();
+
+    let dot = p.dim(" · ");
+    let orphans = if orphans > 0 { p.warn(&orphans.to_string()) } else { p.bold("0") };
+    let mut lines = vec![
+        format!(
+            "{}  {}   {}",
+            p.logo("▲ pkg"),
+            p.dim(&format!("v{}", selfupdate::VERSION)),
+            p.dim("Arch package helper")
+        ),
+        format!(
+            "{} packages{dot}{} AUR{dot}{orphans} orphans{dot}{} cache",
+            p.bold(&total.to_string()),
+            p.aur(&aur.to_string()),
+            p.bold(&ui::human_bytes(cache)),
+        ),
+    ];
+    if let Some(v) = notice {
+        lines.push(p.ok(&format!("↑ pkg {v} is out — press 6 to update")));
+    }
+    ui::boxed(&lines);
+
+    const COL: usize = 26;
+    let left = [(1, "Install"), (2, "Remove"), (3, "Search"), (4, "Package info"), (5, "Lists")];
+    let right = [(6, "Update"), (7, "Orphans"), (8, "Clean cache"), (9, "Status")];
+    println!("\n  {}{}", p.head(&format!("{:<COL$}", "    Packages")), p.head("    System"));
+    for row in 0..left.len() {
+        let l = left.get(row).map(|(n, t)| ui::menu_item(*n, t)).unwrap_or_default();
+        let r = right.get(row).map(|(n, t)| ui::menu_item(*n, t)).unwrap_or_default();
+        let pad = " ".repeat(COL.saturating_sub(ui::vis_len(&l)));
+        println!("  {l}{pad}{r}");
+    }
+    println!("\n  {}", p.dim(" 0  exit"));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PARU: &str = "cachyos-extra-v3/ripgrep-all 0.10.10-3.1 [0 B 12.53 MiB] [installed]
+    rga: ripgrep, but also search in PDFs
+extra/ripgrep-all 0.10.10-3 [2.21 MiB 13.53 MiB] [installed: 0.10.10-3.1]
+    rga: duplicate
+aur/ripgrep-all-git 0.10.10.462.g0f10fb9-1 [+2 ~0.00]
+    rga: git version
+aur/no-desc 1.0-1 [+0 ~0.00]
+";
+
+    #[test]
+    fn parses_repo_results_without_duplicates() {
+        let r = parse_search(PARU, false, 10);
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].source, "cachyos-extra-v3");
+        assert_eq!(r[0].version, "0.10.10-3.1");
+        assert!(r[0].installed);
+        assert_eq!(r[0].description, "rga: ripgrep, but also search in PDFs");
+    }
+
+    #[test]
+    fn parses_aur_results() {
+        let r = parse_search(PARU, true, 10);
+        assert_eq!(r.len(), 2);
+        assert_eq!(r[0].name, "ripgrep-all-git");
+        assert_eq!(r[0].description, "rga: git version");
+        assert_eq!(r[1].description, "");
+        assert!(!r[0].installed);
+    }
+
+    #[test]
+    fn respects_limit() {
+        assert_eq!(parse_search(PARU, true, 1).len(), 1);
     }
 }

@@ -1,11 +1,10 @@
-use super::domain::{Opts, Source};
-use std::result::Result;
+use super::domain::{Opts, Target};
 
 pub trait SourceResolver {
-    fn classify(&self, target: &str) -> Source;
+    fn resolve(&self, target: &str) -> Target;
 }
 
 pub trait Installer {
-    fn install_batch(&self, targets: &[String], opts: Opts) -> Result<(), String>;
-    fn preview(&self, target: &str);
+    fn preview(&self, targets: &[Target]);
+    fn install(&self, targets: &[Target], opts: Opts) -> Result<(), String>;
 }
