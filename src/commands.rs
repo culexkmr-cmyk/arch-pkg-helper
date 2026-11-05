@@ -311,7 +311,7 @@ pub enum UpdateScope {
 }
 
 pub fn run_update(scope: UpdateScope, assume_yes: bool) -> Result<(), String> {
-    if scope == UpdateScope::All && ui::spin("checking pkg itself…", || selfupdate::available(10)).is_some() {
+    if scope == UpdateScope::All && ui::spin("checking apkg itself…", || selfupdate::available(10)).is_some() {
         if let Err(e) = selfupdate::run(false) {
             ui::warning(&format!("apkg self-update: {e}"));
         }

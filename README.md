@@ -30,7 +30,7 @@ Options go after `bash -s --`:
 
 ```sh
 ... | bash -s -- --system       # /usr/local/bin for all users
-... | bash -s -- --version 1.1.1
+... | bash -s -- --version 1.2.0
 ... | bash -s -- --uninstall
 ```
 
@@ -47,7 +47,7 @@ install -Dm0755 target/release/apkg ~/.local/bin/apkg
 ## Updates
 
 - `apkg self-update` replaces the binary with the latest release (sha256-checked, atomic).
-- `apkg update` updates the system and pkg itself.
+- `apkg update` updates the system and apkg itself.
 - The main menu mentions a new version, checked at most once a day
   (`APKG_NO_UPDATE_CHECK=1` turns it off).
 
@@ -57,7 +57,7 @@ install -Dm0755 target/release/apkg ~/.local/bin/apkg
 
 ```text
   ╭──────────────────────────────────────────────────────╮
-  │ ▲ apkg  v1.1.1   Arch package helper                  │
+  │ ▲ apkg  v1.2.0   Arch package helper                  │
   │ 1532 packages · 11 AUR · 2 orphans · 6.7 GiB cache   │
   ╰──────────────────────────────────────────────────────╯
 
@@ -124,8 +124,55 @@ cargo build --release
 ```
 
 To release, bump `version` in `Cargo.toml`, commit and push a matching tag
-(`git tag v1.1.1 && git push origin v1.1.1`). The workflow builds the binary on
+(`git tag v1.2.0 && git push origin v1.2.0`). The workflow builds the binary on
 Arch and publishes it with its checksum and `install.sh`.
+
+## Color themes
+
+`~/.config/apkg/config.conf` selects the active theme:
+
+```conf
+theme = dracula
+```
+
+Individual theme definitions live in:
+
+```text
+~/.config/apkg/themes/<name>.conf
+```
+
+For example:
+
+```text
+~/.config/apkg/themes/dracula.conf
+~/.config/apkg/themes/matugen.conf
+```
+
+A theme file contains its colors:
+
+```conf
+theme = dracula
+repo = 38;5;117
+aur = 38;5;214
+git = 38;5;141
+script = 38;5;209
+ok = 38;5;114
+warn = 38;5;221
+err = 38;5;203
+head = 38;5;111
+accent = 1;38;5;75
+logo = 1;38;5;32
+```
+
+On first use, built-in themes are generated into that directory, so every theme
+has an editable config. `apkg theme` lists and selects them. Colors in the selected
+theme file are applied first, then optional overrides in `config.conf`.
+
+Available themes include: `default`, `dracula`, `nord`, `catppuccin`, `gruvbox`,
+`tokyo-night`, `solarized`, `monochrome`, `ansi`, `matugen`.
+
+You can also override the theme with `APKG_THEME=...` or point to another main
+file with `APKG_CONFIG=/path/to/config.conf`. `NO_COLOR=1` disables colors.
 
 ## License
 

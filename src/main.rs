@@ -38,6 +38,7 @@ fn usage() {
     println!("    apkg files <name>         files owned by the package");
     println!("    apkg owns <path>          which package owns a file");
     println!("    apkg status               overview");
+    println!("    apkg theme [name]         choose or set a color theme");
     println!("    apkg self-update [-n]     update apkg itself from GitHub releases");
     println!();
     println!("{}", p.bold("Flags"));
@@ -222,6 +223,17 @@ fn dispatch(cmd: &str, rest: &[String]) -> Result<(), String> {
             }
             selfupdate::run(f.dry_run)
         }
+        "theme" | "colors" => {
+            if let Some(name) = rest.first() {
+                ui::set_theme(name)?;
+                ui::success(&format!("theme set to {}", name.trim()));
+                Ok(())
+            } else if ui::interactive() {
+                wizard::theme()
+            } else {
+                need_terminal("a theme selection")
+            }
+        }
         "menu" | "m" => wizard::main_menu(),
         "-h" | "--help" | "help" => {
             usage();
@@ -231,7 +243,7 @@ fn dispatch(cmd: &str, rest: &[String]) -> Result<(), String> {
             println!("apkg {VERSION}");
             Ok(())
         }
-        other => Err(format!("unknown command: {other} (try pkg --help)")),
+        other => Err(format!("unknown command: {other} (try apkg --help)")),
     }
 }
 

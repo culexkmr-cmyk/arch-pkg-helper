@@ -386,6 +386,37 @@ pub fn orphans() -> Result<(), String> {
     Ok(())
 }
 
+// ─── theme ───────────────────────────────────────────────────────────────────
+pub fn theme() -> Result<(), String> {
+    if !ui::interactive() {
+        return Err("theme needs a terminal".into());
+    }
+    ui::header_head("theme");
+    let themes = ui::available_themes();
+    let current = ui::current_theme();
+    let items: Vec<String> = themes
+        .iter()
+        .map(|t| {
+            if *t == current {
+                format!("{t}  (current)")
+            } else {
+                (*t).to_string()
+            }
+        })
+        .collect();
+    let Some(choice) = ui::menu("color theme", &items) else {
+        ui::info("cancelled");
+        return Ok(());
+    };
+    let selected = themes[choice].clone();
+    ui::set_theme(&selected)?;
+    ui::success(&format!("theme set to {selected}; reloading palette"));
+    // Apply the new theme immediately when explicitly requested.
+    ui::reload_palette();
+    ui::pause();
+    Ok(())
+}
+
 // ─── main menu ───────────────────────────────────────────────────────────────
 
 pub fn main_menu() -> Result<(), String> {
@@ -393,7 +424,7 @@ pub fn main_menu() -> Result<(), String> {
     loop {
         ui::clear();
         home(notice.as_deref());
-        let Some(choice) = ui::read_choice(9) else {
+        let Some(choice) = ui::read_choice(10) else {
             return Ok(());
         };
         let outcome = match choice {
@@ -405,9 +436,14 @@ pub fn main_menu() -> Result<(), String> {
             5 => update(),
             6 => orphans(),
             7 => clean(),
-            _ => {
+            8 => {
                 commands::status();
                 ui::pause();
+                Ok(())
+            }
+            9 => theme(),
+            _ => {
+                ui::info("cancelled");
                 Ok(())
             }
         };
@@ -448,7 +484,7 @@ fn home(notice: Option<&str>) {
 
     const COL: usize = 26;
     let left = [(1, "Install"), (2, "Remove"), (3, "Search"), (4, "Package info"), (5, "Lists")];
-    let right = [(6, "Update"), (7, "Orphans"), (8, "Clean cache"), (9, "Status")];
+    let right = [(6, "Update"), (7, "Orphans"), (8, "Clean cache"), (9, "Status"), (10, "Theme")];
     println!("\n  {}{}", p.head(&format!("{:<COL$}", "    Packages")), p.head("    System"));
     for row in 0..left.len() {
         let l = left.get(row).map(|(n, t)| ui::menu_item(*n, t)).unwrap_or_default();
