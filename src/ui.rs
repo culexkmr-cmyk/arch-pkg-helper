@@ -79,6 +79,9 @@ impl Palette {
     pub fn dim(&self, s: &str) -> String {
         self.paint("2", s)
     }
+    pub fn underline(&self, s: &str) -> String {
+        self.paint("4", s)
+    }
     pub fn repo(&self, s: &str) -> String {
         self.paint(&self.colors.repo, s)
     }
@@ -213,6 +216,23 @@ fn apply_color_overrides(colors: &mut ColorSet) {
     if let Some(v) = read_config_value("color_head") { colors.head = color_to_ansi(&v); }
     if let Some(v) = read_config_value("color_accent") { colors.accent = color_to_ansi(&v); }
     if let Some(v) = read_config_value("color_logo") { colors.logo = color_to_ansi(&v); }
+}
+
+pub fn theme_preview(name: &str) -> String {
+    let colors = load_theme_color_set(name);
+    let palette = Palette { enabled: pal().enabled, colors };
+    // A compact color signature: repo, AUR, git, script, ok, warn, error, accent.
+    format!(
+        "{} {} {} {} {} {} {} {}",
+        palette.repo("⬤"),
+        palette.aur("⬤"),
+        palette.git("⬤"),
+        palette.script("⬤"),
+        palette.ok("⬤"),
+        palette.warn("⬤"),
+        palette.err("⬤"),
+        palette.accent("⬤"),
+    )
 }
 
 pub fn current_theme() -> String {

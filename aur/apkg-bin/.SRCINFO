@@ -1,0 +1,23 @@
+pkgbase = apkg-bin
+	pkgdesc = Arch Linux package helper CLI (apkg): pacman, AUR, git, scripts and PKGBUILDs
+	pkgver = 1.2.0
+	pkgrel = 1
+	url = https://github.com/culexkmr-cmyk/arch-pkg-helper
+	arch = x86_64
+	license = AGPL-3.0-only
+	depends = pacman
+	depends = sudo
+	depends = git
+	depends = curl
+	optdepends = paru: AUR support
+	optdepends = yay: AUR support
+	optdepends = pacman-contrib: updates and cache cleanup
+	provides = apkg
+	conflicts = apkg
+	conflicts = apkg-git
+	source = apkg-1.2.0::https://github.com/culexkmr-cmyk/arch-pkg-helper/releases/download/v1.2.0/pkg-x86_64-linux
+	source = apkg-1.2.0-src.tar.gz::https://github.com/culexkmr-cmyk/arch-pkg-helper/archive/v1.2.0.tar.gz
+	sha256sums = 6c4c924149547287c8ab121e73e5461c80ec4bfa28e69fe654ab9e28827c3f3f
+	sha256sums = 75de63a4df4c950cc3bf46348295ff2f8e9a931b865481c610d75644489619c7
+
+pkgname = apkg-bin

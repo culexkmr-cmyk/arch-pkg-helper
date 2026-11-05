@@ -397,11 +397,14 @@ pub fn theme() -> Result<(), String> {
     let items: Vec<String> = themes
         .iter()
         .map(|t| {
-            if *t == current {
-                format!("{t}  (current)")
+            let name = if *t == current {
+                ui::pal().underline(t)
             } else {
                 (*t).to_string()
-            }
+            };
+            let pad_width = 14usize.saturating_sub(ui::vis_len(&name)).max(1);
+            let padding = " ".repeat(pad_width);
+            format!("{name}{padding}   {}", ui::theme_preview(t))
         })
         .collect();
     let Some(choice) = ui::menu("color theme", &items) else {
