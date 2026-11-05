@@ -5,12 +5,13 @@
 
 use std::io::{self, IsTerminal, Write};
 use std::sync::atomic::AtomicPtr;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-
 #[derive(Clone)]
 struct ColorSet {
+    border: String,
     repo: String,
     aur: String,
     git: String,
@@ -26,6 +27,7 @@ struct ColorSet {
 impl ColorSet {
     fn default() -> Self {
         Self {
+            border: "2".to_string(),
             repo: "38;5;39".to_string(),
             aur: "38;5;214".to_string(),
             git: "38;5;141".to_string(),
@@ -91,6 +93,9 @@ impl Palette {
     pub fn git(&self, s: &str) -> String {
         self.paint(&self.colors.git, s)
     }
+    pub fn border(&self, s: &str) -> String {
+        self.paint(&self.colors.border, s)
+    }
     pub fn script(&self, s: &str) -> String {
         self.paint(&self.colors.script, s)
     }
@@ -129,8 +134,26 @@ fn config_file() -> Option<std::path::PathBuf> {
     p.is_file().then_some(p)
 }
 
-fn read_config_value(key: &str) -> Option<String> {
-    let text = std::fs::read_to_string(config_file()?).ok()?;
+#[derive(Clone)]
+struct CachedConfig {
+    path: std::path::PathBuf,
+    modified: Option<std::time::SystemTime>,
+    values: HashMap<String, String>,
+}
+
+static CONFIG_CACHE: std::sync::Mutex<Option<CachedConfig>> = std::sync::Mutex::new(None);
+
+fn load_config() -> Option<CachedConfig> {
+    let path = config_file()?;
+    let modified = path.metadata().ok()?.modified().ok();
+    if let Some(existing) = CONFIG_CACHE.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        if existing.path == path && existing.modified == modified {
+            return Some(existing);
+        }
+    }
+
+    let text = std::fs::read_to_string(&path).ok()?;
+    let mut values = HashMap::new();
     for raw in text.lines() {
         let line = raw.trim();
         if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
@@ -143,9 +166,6 @@ fn read_config_value(key: &str) -> Option<String> {
         } else {
             continue;
         };
-        if !k.trim().eq_ignore_ascii_case(key) {
-            continue;
-        }
         let mut value = v.trim().to_string();
         if (value.starts_with('"') && value.ends_with('"') && value.len() >= 2)
             || (value.starts_with('\'') && value.ends_with('\'') && value.len() >= 2)
@@ -156,11 +176,16 @@ fn read_config_value(key: &str) -> Option<String> {
             value.truncate(i);
             value = value.trim().to_string();
         }
-        return Some(value);
+        values.insert(k.trim().to_lowercase(), value);
     }
-    None
+    let cached = CachedConfig { path, modified, values };
+    *CONFIG_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some(cached.clone());
+    Some(cached)
 }
 
+fn read_config_value(key: &str) -> Option<String> {
+    load_config()?.values.get(key).cloned()
+}
 
 fn color_to_ansi(value: &str) -> String {
     let v = value.trim();
@@ -195,6 +220,7 @@ fn apply_color_overrides(colors: &mut ColorSet) {
             }
         };
     }
+    override_field!("border", border);
     override_field!("repo", repo);
     override_field!("aur", aur);
     override_field!("git", git);
@@ -206,16 +232,39 @@ fn apply_color_overrides(colors: &mut ColorSet) {
     override_field!("accent", accent);
     override_field!("logo", logo);
     // also allow color_repo style keys
-    if let Some(v) = read_config_value("color_repo") { colors.repo = color_to_ansi(&v); }
-    if let Some(v) = read_config_value("color_aur") { colors.aur = color_to_ansi(&v); }
-    if let Some(v) = read_config_value("color_git") { colors.git = color_to_ansi(&v); }
-    if let Some(v) = read_config_value("color_script") { colors.script = color_to_ansi(&v); }
-    if let Some(v) = read_config_value("color_ok") { colors.ok = color_to_ansi(&v); }
-    if let Some(v) = read_config_value("color_warn") { colors.warn = color_to_ansi(&v); }
-    if let Some(v) = read_config_value("color_err") { colors.err = color_to_ansi(&v); }
-    if let Some(v) = read_config_value("color_head") { colors.head = color_to_ansi(&v); }
-    if let Some(v) = read_config_value("color_accent") { colors.accent = color_to_ansi(&v); }
-    if let Some(v) = read_config_value("color_logo") { colors.logo = color_to_ansi(&v); }
+    if let Some(v) = read_config_value("color_repo") {
+        colors.repo = color_to_ansi(&v);
+    }
+    if let Some(v) = read_config_value("color_aur") {
+        colors.aur = color_to_ansi(&v);
+    }
+    if let Some(v) = read_config_value("color_git") {
+        colors.git = color_to_ansi(&v);
+    }
+    if let Some(v) = read_config_value("color_script") {
+        colors.script = color_to_ansi(&v);
+    }
+    if let Some(v) = read_config_value("color_ok") {
+        colors.ok = color_to_ansi(&v);
+    }
+    if let Some(v) = read_config_value("color_warn") {
+        colors.warn = color_to_ansi(&v);
+    }
+    if let Some(v) = read_config_value("color_err") {
+        colors.err = color_to_ansi(&v);
+    }
+    if let Some(v) = read_config_value("color_head") {
+        colors.head = color_to_ansi(&v);
+    }
+    if let Some(v) = read_config_value("color_accent") {
+        colors.accent = color_to_ansi(&v);
+    }
+    if let Some(v) = read_config_value("color_logo") {
+        colors.logo = color_to_ansi(&v);
+    }
+    if let Some(v) = read_config_value("color_border") {
+        colors.border = color_to_ansi(&v);
+    }
 }
 
 pub fn theme_preview(name: &str) -> String {
@@ -235,6 +284,14 @@ pub fn theme_preview(name: &str) -> String {
     )
 }
 
+pub fn logo_text() -> String {
+    std::env::var("APKG_LOGO_TEXT")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| read_config_value("logo_text").or_else(|| read_config_value("title")))
+        .unwrap_or_else(|| "▲ apkg".to_string())
+}
+
 pub fn current_theme() -> String {
     read_config_value("theme").unwrap_or_else(|| "default".to_string())
 }
@@ -242,13 +299,14 @@ pub fn current_theme() -> String {
 pub fn config_path() -> std::path::PathBuf {
     if let Ok(path) = std::env::var("APKG_CONFIG") {
         let p = std::path::PathBuf::from(path);
-        if let Some(parent) = p.parent() { let _ = std::fs::create_dir_all(parent); }
+        if let Some(parent) = p.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         return p;
     }
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| home.join(".config"));
+    let base =
+        std::env::var_os("XDG_CONFIG_HOME").map(std::path::PathBuf::from).unwrap_or_else(|| home.join(".config"));
     base.join("apkg").join("config.conf")
 }
 
@@ -267,10 +325,31 @@ pub fn set_theme(theme: &str) -> Result<(), String> {
     }
     let existing = std::fs::read_to_string(&path).unwrap_or_default();
     let keys_to_remove = [
-        "theme", "color_theme", "theme_name",
-        "repo", "aur", "git", "script", "ok", "warn", "err", "head", "accent", "logo",
-        "color_repo", "color_aur", "color_git", "color_script", "color_ok", "color_warn",
-        "color_err", "color_head", "color_accent", "color_logo",
+        "theme",
+        "color_theme",
+        "theme_name",
+        "border",
+        "repo",
+        "aur",
+        "git",
+        "script",
+        "ok",
+        "warn",
+        "err",
+        "head",
+        "accent",
+        "logo",
+        "color_border",
+        "color_repo",
+        "color_aur",
+        "color_git",
+        "color_script",
+        "color_ok",
+        "color_warn",
+        "color_err",
+        "color_head",
+        "color_accent",
+        "color_logo",
     ];
     let mut lines: Vec<String> = existing
         .lines()
@@ -280,10 +359,13 @@ pub fn set_theme(theme: &str) -> Result<(), String> {
             if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
                 return true;
             }
-            let key = trimmed.split_once('=').or_else(|| trimmed.split_once(':'))
-                .map(|(k, _)| k.trim().to_lowercase());
-            let Some(key) = key else { return true; };
-            if !keys_to_remove.contains(&key.as_str()) { return true; }
+            let key = trimmed.split_once('=').or_else(|| trimmed.split_once(':')).map(|(k, _)| k.trim().to_lowercase());
+            let Some(key) = key else {
+                return true;
+            };
+            if !keys_to_remove.contains(&key.as_str()) {
+                return true;
+            }
             // Theme-specific colors now live in ~/.config/apkg/themes/<name>.conf,
             // so the main config keeps only the selected theme name.
             false
@@ -299,10 +381,8 @@ pub fn themes_dir() -> std::path::PathBuf {
     config_path().parent().unwrap_or_else(|| std::path::Path::new(".")).join("themes")
 }
 
-const BUILTIN_THEME_NAMES: &[&str] = &[
-    "default", "dracula", "nord", "catppuccin", "gruvbox", "tokyo-night",
-    "solarized", "monochrome", "ansi",
-];
+const BUILTIN_THEME_NAMES: &[&str] =
+    &["default", "dracula", "nord", "catppuccin", "gruvbox", "tokyo-night", "solarized", "monochrome", "ansi"];
 
 pub fn ensure_builtin_themes() {
     let dir = themes_dir();
@@ -331,6 +411,10 @@ fn builtin_theme_content(name: &str) -> Option<&'static str> {
         "ansi" => Some(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/themes/ansi.conf"))),
         _ => None,
     }
+}
+
+pub fn config_text(key: &str, default: &str) -> String {
+    read_config_value(key).filter(|s| !s.trim().is_empty()).unwrap_or_else(|| default.to_string())
 }
 
 pub fn available_themes() -> Vec<String> {
@@ -376,6 +460,7 @@ fn load_theme_color_set(name: &str) -> ColorSet {
                 continue;
             };
             match k.as_str() {
+                "border" => colors.border = color_to_ansi(v),
                 "repo" => colors.repo = color_to_ansi(v),
                 "aur" => colors.aur = color_to_ansi(v),
                 "git" => colors.git = color_to_ansi(v),
@@ -398,12 +483,16 @@ static PALETTE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 pub fn pal() -> &'static Palette {
     let ptr = PALETTE_PTR.load(Ordering::Acquire);
     if !ptr.is_null() {
-        unsafe { return &*ptr; }
+        unsafe {
+            return &*ptr;
+        }
     }
     let _guard = PALETTE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let ptr = PALETTE_PTR.load(Ordering::Acquire);
     if !ptr.is_null() {
-        unsafe { return &*ptr; }
+        unsafe {
+            return &*ptr;
+        }
     }
     let new_ptr = Box::into_raw(Box::new(Palette::new()));
     PALETTE_PTR.store(new_ptr, Ordering::Release);
@@ -549,12 +638,12 @@ pub fn rule() {
 pub fn boxed(lines: &[String]) {
     let p = pal();
     let inner = lines.iter().map(|l| vis_len(l)).max().unwrap_or(0).max(layout_width() - 6);
-    println!("  {}", p.dim(&format!("╭{}╮", "─".repeat(inner + 2))));
+    println!("  {}", p.border(&format!("╭{}╮", "─".repeat(inner + 2))));
     for l in lines {
         let pad = " ".repeat(inner - vis_len(l));
-        println!("  {} {l}{pad} {}", p.dim("│"), p.dim("│"));
+        println!("  {} {l}{pad} {}", p.border("│"), p.border("│"));
     }
-    println!("  {}", p.dim(&format!("╰{}╯", "─".repeat(inner + 2))));
+    println!("  {}", p.border(&format!("╰{}╯", "─".repeat(inner + 2))));
 }
 
 /// `██████░░░░` for a 0..=100 percentage.

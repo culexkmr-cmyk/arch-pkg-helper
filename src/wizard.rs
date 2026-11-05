@@ -397,11 +397,7 @@ pub fn theme() -> Result<(), String> {
     let items: Vec<String> = themes
         .iter()
         .map(|t| {
-            let name = if *t == current {
-                ui::pal().underline(t)
-            } else {
-                (*t).to_string()
-            };
+            let name = if *t == current { ui::pal().underline(t) } else { (*t).to_string() };
             let pad_width = 14usize.saturating_sub(ui::vis_len(&name)).max(1);
             let padding = " ".repeat(pad_width);
             format!("{name}{padding}   {}", ui::theme_preview(t))
@@ -459,27 +455,21 @@ pub fn main_menu() -> Result<(), String> {
 
 fn home(notice: Option<&str>) {
     let p = ui::pal();
+    let title = ui::config_text("title", &ui::logo_text());
+    let subtitle = ui::config_text("subtitle", "Arch package helper");
+
     let total = sys::count(&["-Q"]);
     let aur = sys::count(&["-Qm"]);
-    let orphans = sys::orphans().len();
     let cache = sys::cache_size();
 
-    let dot = p.dim(" · ");
-    let orphans = if orphans > 0 { p.warn(&orphans.to_string()) } else { p.bold("0") };
-    let mut lines = vec![
-        format!(
-            "{}  {}   {}",
-            p.logo("▲ apkg"),
-            p.dim(&format!("v{}", selfupdate::VERSION)),
-            p.dim("Arch package helper")
-        ),
-        format!(
-            "{} packages{dot}{} AUR{dot}{orphans} orphans{dot}{} cache",
-            p.bold(&total.to_string()),
-            p.aur(&aur.to_string()),
-            p.bold(&ui::human_bytes(cache)),
-        ),
-    ];
+    let mut lines =
+        vec![format!("{}  {}   {}", p.logo(&title), p.dim(&subtitle), p.dim(&format!("v{}", selfupdate::VERSION)))];
+    lines.push(format!(
+        "{} packages {} AUR {} cache",
+        p.bold(&total.to_string()),
+        p.aur(&aur.to_string()),
+        p.bold(&ui::human_bytes(cache)),
+    ));
     if let Some(v) = notice {
         lines.push(p.ok(&format!("↑ apkg {v} is out — press 6 to update")));
     }

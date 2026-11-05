@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const REPO: &str = "culexkmr-cmyk/arch-apkg-helper";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-const ASSET: &str = "pkg-x86_64-linux";
+const ASSETS: [&str; 2] = ["apkg-x86_64-linux", "pkg-x86_64-linux"];
 const CHECK_EVERY: u64 = 24 * 3600;
 
 fn parse(v: &str) -> Vec<u64> {
@@ -134,23 +134,40 @@ pub fn run(dry_run: bool) -> Result<(), String> {
     }
 
     let tmp = TempDir::new()?;
-    let bin = tmp.0.join(ASSET);
-    let url = format!("https://github.com/{REPO}/releases/download/v{latest}/{ASSET}");
-    sys::run("curl", &["-fsSL", "--max-time", "300", "-o", &bin.to_string_lossy(), &url])
-        .map_err(|e| format!("download failed: {e}"))?;
-    let sums = sys::run("curl", &["-fsSL", "--max-time", "30", &format!("{url}.sha256")])
-        .map_err(|e| format!("checksum download failed: {e}"))?;
-    let want = sums.split_whitespace().next().unwrap_or("");
-    if want.len() != 64 || sha256(&bin)? != want {
-        return Err("checksum mismatch, nothing changed".into());
-    }
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
-    let reported = sys::run(&bin.to_string_lossy(), &["--version"]).unwrap_or_default();
-    if !reported.contains(&latest) {
-        return Err(format!("downloaded binary reports {:?}, nothing changed", reported.trim()));
+    // Transition fallback: preferred new asset, then the legacy one.
+    let mut bin: Option<PathBuf> = None;
+    let mut last_error = None;
+    for asset in ASSETS {
+        let candidate = tmp.0.join(asset);
+        let url = format!("https://github.com/{REPO}/releases/download/v{latest}/{asset}");
+        if sys::run("curl", &["-fsSL", "--max-time", "300", "-o", &candidate.to_string_lossy(), &url]).is_err() {
+            last_error = Some(format!("download failed: {url}"));
+            continue;
+        }
+        let Ok(sums) = sys::run("curl", &["-fsSL", "--max-time", "30", &format!("{url}.sha256")]) else {
+            last_error = Some(format!("checksum download failed: {url}.sha256"));
+            continue;
+        };
+        let want = sums.split_whitespace().next().unwrap_or("");
+        if want.len() != 64 || sha256(&candidate).unwrap_or_default() != want {
+            last_error = Some(format!("checksum mismatch for {asset}"));
+            continue;
+        }
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(e) = std::fs::set_permissions(&candidate, std::fs::Permissions::from_mode(0o755)) {
+            last_error = Some(format!("cannot mark {asset} executable: {e}"));
+            continue;
+        }
+        let reported = sys::run(&candidate.to_string_lossy(), &["--version"]).unwrap_or_default();
+        if !reported.contains(&latest) {
+            last_error = Some(format!("downloaded {asset} reports {:?}, nothing changed", reported.trim()));
+            continue;
+        }
+        bin = Some(candidate);
+        break;
     }
 
+    let bin = bin.ok_or_else(|| last_error.unwrap_or_else(|| format!("no usable release asset found for {latest}")))?;
     replace(&bin, &exe)?;
     ui::success(&format!("apkg updated to {latest}"));
     Ok(())

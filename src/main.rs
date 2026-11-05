@@ -1,4 +1,4 @@
-//! pkg — helper for Arch Linux packages.
+//! apkg — helper for Arch Linux packages.
 //!
 //! One front-end for pacman, the AUR, git remotes, install scripts and local
 //! PKGBUILDs, with a conversational mode when run without arguments.
@@ -115,7 +115,7 @@ fn main() -> ExitCode {
     map(dispatch(&args[0], &args[1..]))
 }
 
-// Rust ignores SIGPIPE, so `pkg search x | head` would panic on a closed pipe.
+// Rust ignores SIGPIPE, so `apkg search x | head` would panic on a closed pipe.
 fn reset_sigpipe() {
     extern "C" {
         fn signal(sig: i32, handler: usize) -> usize;

@@ -30,7 +30,7 @@ Options go after `bash -s --`:
 
 ```sh
 ... | bash -s -- --system       # /usr/local/bin for all users
-... | bash -s -- --version 1.2.1
+... | bash -s -- --version 1.2.2
 ... | bash -s -- --uninstall
 ```
 
@@ -53,11 +53,11 @@ install -Dm0755 target/release/apkg ~/.local/bin/apkg
 
 ## Usage
 
-`pkg` with no arguments opens the main menu:
+`apkg` with no arguments opens the main menu:
 
 ```text
   ╭──────────────────────────────────────────────────────╮
-  │ ▲ apkg  v1.2.1   Arch package helper                  │
+  │ ▲ apkg  v1.2.2   Arch package helper                  │
   │ 1532 packages · 11 AUR · 2 orphans · 6.7 GiB cache   │
   ╰──────────────────────────────────────────────────────╯
 
@@ -100,7 +100,7 @@ aapkg self-update [-n]           update pkg only
 -c, --cascade   remove: also remove packages that depend on the targets
 ```
 
-Short flags combine (`-ny`); `--` ends flags. Without a terminal pkg never prompts,
+Short flags combine (`-ny`); `--` ends flags. Without a terminal apkg never prompts,
 prints plain text and returns a non-zero exit code on failure.
 
 ### Examples
@@ -124,7 +124,7 @@ cargo build --release
 ```
 
 To release, bump `version` in `Cargo.toml`, commit and push a matching tag
-(`git tag v1.2.1 && git push origin v1.2.1`). The workflow builds the binary on
+(`git tag v1.2.2 && git push origin v1.2.2`). The workflow builds the binary on
 Arch and publishes it with its checksum and `install.sh`.
 
 ## Color themes
@@ -173,6 +173,7 @@ Available themes include: `default`, `dracula`, `nord`, `catppuccin`, `gruvbox`,
 
 You can also override the theme with `APKG_THEME=...` or point to another main
 file with `APKG_CONFIG=/path/to/config.conf`. `NO_COLOR=1` disables colors.
+
 
 ## License
 

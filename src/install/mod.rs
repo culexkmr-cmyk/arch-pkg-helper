@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn local_pkgbuild_dir() {
-        let dir = std::env::temp_dir().join(format!("pkg-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("apkg-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("PKGBUILD"), "pkgname=x\n").unwrap();
         let d = dir.to_string_lossy().to_string();

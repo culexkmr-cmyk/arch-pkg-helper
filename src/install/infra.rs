@@ -216,7 +216,7 @@ fn private_copy(body: &str) -> Result<(PathBuf, PathBuf), String> {
     use std::os::unix::fs::DirBuilderExt;
     let nanos =
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
-    let dir = std::env::temp_dir().join(format!("pkg-{}-{nanos}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("apkg-{}-{nanos}", std::process::id()));
     std::fs::DirBuilder::new().mode(0o700).create(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     let file = dir.join("script");
     std::fs::write(&file, body).map_err(|e| format!("cannot write temp file: {e}"))?;
