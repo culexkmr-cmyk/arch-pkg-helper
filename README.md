@@ -87,7 +87,7 @@ apkg why <name>                 who requires it
 apkg files <name>               files of a package
 apkg owns <path>                which package owns a file
 apkg status                     overview
-aapkg self-update [-n]           update pkg only
+apkg self-update [-n]           update apkg itself only
 ```
 
 ### Flags

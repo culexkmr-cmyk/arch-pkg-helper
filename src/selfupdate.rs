@@ -4,7 +4,7 @@ use crate::{sys, ui};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const REPO: &str = "culexkmr-cmyk/arch-apkg-helper";
+pub const REPO: &str = "culexkmr-cmyk/arch-pkg-helper";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const ASSETS: [&str; 2] = ["apkg-x86_64-linux", "pkg-x86_64-linux"];
 const CHECK_EVERY: u64 = 24 * 3600;

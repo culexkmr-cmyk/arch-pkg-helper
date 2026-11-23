@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # apkg installer.
-#   curl -fsSL https://raw.githubusercontent.com/culexkmr-cmyk/arch-apkg-helper/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/culexkmr-cmyk/arch-pkg-helper/main/install.sh | bash
 #   ... | bash -s -- --system        install to /usr/local/bin for all users
 #   ... | bash -s -- --uninstall
 set -euo pipefail
 
-REPO="culexkmr-cmyk/arch-apkg-helper"
+REPO="culexkmr-cmyk/arch-pkg-helper"
 ASSET="pkg-x86_64-linux"
 MARK="# added by apkg installer"
 
